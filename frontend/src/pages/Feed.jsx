@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { MapPin, Users, Star, ArrowRight } from 'lucide-react';
+import { MapPin, Users, Star, ArrowRight, Smartphone, LayoutGrid } from 'lucide-react';
+import TikTokFeed from '../components/TikTokFeed';
 
 export default function Feed() {
     const [users, setUsers] = useState([]);
     const [selectedUserId, setSelectedUserId] = useState(null);
     const [feed, setFeed] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [viewMode, setViewMode] = useState('tiktok'); // 'tiktok' or 'grid'
 
     // Fetch users for selector
     useEffect(() => {
@@ -52,6 +54,37 @@ export default function Feed() {
         }
     };
 
+    // TikTok mode - full screen
+    if (viewMode === 'tiktok' && selectedUserId) {
+        return (
+            <div className="h-full relative">
+                {/* User Selector Overlay */}
+                <div className="absolute top-4 left-4 right-4 z-50 flex justify-between items-center">
+                    <select
+                        className="bg-black/50 backdrop-blur text-white border border-white/20 rounded-lg px-4 py-2 outline-none text-sm"
+                        value={selectedUserId || ''}
+                        onChange={e => setSelectedUserId(e.target.value)}
+                    >
+                        {users.map(u => (
+                            <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                    </select>
+
+                    <button
+                        onClick={() => setViewMode('grid')}
+                        className="bg-black/50 backdrop-blur text-white border border-white/20 rounded-lg px-4 py-2 flex items-center gap-2 text-sm hover:bg-black/70 transition"
+                    >
+                        <LayoutGrid className="w-4 h-4" />
+                        Grid View
+                    </button>
+                </div>
+
+                <TikTokFeed userId={selectedUserId} />
+            </div>
+        );
+    }
+
+    // Grid mode - traditional view
     return (
         <div className="h-full flex flex-col bg-gray-100">
             {/* Header / Selector */}
@@ -60,17 +93,26 @@ export default function Feed() {
                     <h1 className="text-2xl font-bold text-gray-900">Your Feed</h1>
                     <p className="text-gray-500 text-sm">Personalized recommendations based on your circle.</p>
                 </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-600">Viewing as:</span>
-                    <select
-                        className="border border-gray-300 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
-                        value={selectedUserId || ''}
-                        onChange={e => setSelectedUserId(e.target.value)}
+                <div className="flex items-center gap-4">
+                    <button
+                        onClick={() => setViewMode('tiktok')}
+                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
                     >
-                        {users.map(u => (
-                            <option key={u.id} value={u.id}>{u.name}</option>
-                        ))}
-                    </select>
+                        <Smartphone className="w-4 h-4" />
+                        TikTok View
+                    </button>
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-600">Viewing as:</span>
+                        <select
+                            className="border border-gray-300 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+                            value={selectedUserId || ''}
+                            onChange={e => setSelectedUserId(e.target.value)}
+                        >
+                            {users.map(u => (
+                                <option key={u.id} value={u.id}>{u.name}</option>
+                            ))}
+                        </select>
+                    </div>
                 </div>
             </div>
 

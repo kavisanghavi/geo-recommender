@@ -99,83 +99,122 @@ async def debug_create_user(request: CreateUserRequest = Body(...)):
 @app.get("/user/{user_id}")
 async def get_user_profile(user_id: str):
     """
-    Get user profile including friends and interactions.
+    Enhanced user profile with watch history and engagement details.
     """
-    from app.graph import driver
+    from app.graph import driver, get_user_watch_history
     from app.vector import client
-    
+
     try:
         with driver.session() as session:
             # Get User & Interests
-            user_result = session.run("MATCH (u:User {id: $id}) RETURN u.name as name, u.interests as interests", id=user_id).single()
+            user_result = session.run("""
+                MATCH (u:User {id: $id})
+                RETURN u.name as name, u.interests as interests, u.archetype as archetype
+            """, id=user_id).single()
+
             if not user_result:
                 raise HTTPException(status_code=404, detail="User not found")
-            
+
             user_data = {
                 "id": user_id,
                 "name": user_result["name"],
-                "interests": user_result["interests"] or []
+                "interests": user_result["interests"] or [],
+                "archetype": user_result.get("archetype", "Unknown")
             }
-            
+
             # Get Friends
             friends_result = session.run("""
                 MATCH (u:User {id: $id})-[:FRIENDS_WITH]-(f:User)
-                RETURN f.id as id, f.name as name
+                RETURN f.id as id, f.name as name, f.interests as interests
+                ORDER BY f.name
             """, id=user_id)
-            friends = [{"id": r["id"], "name": r["name"]} for r in friends_result]
-            
-            # Get Interactions (Going/Saved)
-            interactions_result = session.run("""
-                MATCH (u:User {id: $id})-[r:INTERESTED_IN]->(v:Venue)
-                RETURN v.id as venue_id, r.type as type
-            """, id=user_id)
-            
-            interactions = []
-            for r in interactions_result:
-                # Fetch venue details from Qdrant
-                # Note: In a real app, we might cache this or store minimal venue data in Neo4j
-                # For MVP, we'll fetch individually or batch if possible. 
-                # Qdrant scroll/retrieve is better.
-                interactions.append({"venue_id": r["venue_id"], "type": r["type"]})
-                
-            # Enrich interactions with Venue Data
-            if interactions:
-                # Qdrant uses integer IDs (0..N) but we store "venue_N" strings in Neo4j
-                # We need to convert "venue_5" -> 5 to retrieve from Qdrant
+            friends = [{"id": r["id"], "name": r["name"], "interests": r["interests"]} for r in friends_result]
+
+            # Get Watch History (using new ENGAGED_WITH relationships)
+            watch_history = get_user_watch_history(user_id, limit=50)
+
+            # Enrich watch history with venue details
+            if watch_history:
                 point_ids = []
                 venue_id_to_point_id = {}
-                
-                for i in interactions:
+
+                for item in watch_history:
                     try:
-                        # Extract int from "venue_123"
-                        pid = int(i["venue_id"].split("_")[1])
+                        pid = int(item["venue_id"].split("_")[1])
                         point_ids.append(pid)
-                        venue_id_to_point_id[i["venue_id"]] = pid
+                        venue_id_to_point_id[item["venue_id"]] = pid
                     except:
                         pass
-                
+
                 if point_ids:
                     points = client.retrieve(
                         collection_name="venues",
                         ids=point_ids,
                         with_payload=True
                     )
-                    
-                    # Map back: Point ID -> Payload
-                    # We need to match the original interaction venue_id (string) to the payload
+
                     point_map = {p.id: p.payload for p in points}
-                    
-                    for i in interactions:
-                        pid = venue_id_to_point_id.get(i["venue_id"])
+
+                    for item in watch_history:
+                        pid = venue_id_to_point_id.get(item["venue_id"])
                         if pid is not None and pid in point_map:
-                            i["venue"] = point_map[pid]
+                            item["venue"] = point_map[pid]
 
             return {
                 "user": user_data,
                 "friends": friends,
-                "interactions": interactions
+                "watch_history": watch_history
             }
-            
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/users")
+async def get_all_users(current_user_id: str = None):
+    """
+    Get all users for friend discovery.
+    If current_user_id is provided, marks which users are already friends.
+    """
+    from app.graph import get_all_users, driver
+
+    try:
+        all_users = get_all_users()
+
+        # If current_user_id provided, mark existing friends
+        if current_user_id:
+            with driver.session() as session:
+                friends_result = session.run("""
+                    MATCH (u:User {id: $id})-[:FRIENDS_WITH]-(f:User)
+                    RETURN f.id as friend_id
+                """, id=current_user_id)
+
+                friend_ids = set([r["friend_id"] for r in friends_result])
+
+                for user in all_users:
+                    user["is_friend"] = user["id"] in friend_ids
+                    user["is_self"] = user["id"] == current_user_id
+
+        return {"users": all_users}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class AddFriendRequest(BaseModel):
+    user_id: str
+    friend_id: str
+
+@app.post("/friends/add")
+async def add_friend(req: AddFriendRequest):
+    """
+    Add a friend connection (bidirectional).
+    """
+    from app.graph import create_friendship
+
+    try:
+        create_friendship(req.user_id, req.friend_id)
+        # Also create reverse for bidirectional
+        create_friendship(req.friend_id, req.user_id)
+        return {"status": "friendship_created"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -261,6 +300,7 @@ async def get_map_data():
 
 @app.post("/ingest/interaction")
 async def ingest_interaction(interaction: Interaction):
+    """Legacy endpoint for backwards compatibility"""
     process_interaction.delay(
         interaction.user_id,
         interaction.venue_id,
@@ -268,6 +308,77 @@ async def ingest_interaction(interaction: Interaction):
         interaction.duration
     )
     return {"status": "queued"}
+
+class EngagementRequest(BaseModel):
+    user_id: str
+    venue_id: str
+    watch_time_seconds: int
+    action: str  # 'view', 'skip', 'save', 'share'
+
+@app.post("/engage")
+async def log_engagement_endpoint(req: EngagementRequest):
+    """
+    Log user engagement with watch time tracking.
+    This is the primary endpoint for TikTok-style interactions.
+    """
+    from app.graph import log_engagement
+
+    # Calculate weight based on action and watch time
+    weight = 0.0
+    action_type = req.action
+
+    if req.action == "skip" or req.watch_time_seconds < 3:
+        weight = -0.5
+        action_type = "skipped"
+    elif req.action == "share":
+        weight = 3.0
+        action_type = "shared"
+    elif req.action == "save":
+        weight = 1.5
+        action_type = "saved"
+    else:  # view
+        # Weight based on watch time
+        if req.watch_time_seconds >= 30:
+            weight = 2.0  # Full view
+        elif req.watch_time_seconds >= 10:
+            weight = 1.0  # Engaged view
+        elif req.watch_time_seconds >= 3:
+            weight = 0.3  # Brief view
+        action_type = "viewed"
+
+    # Log to graph (async via Celery in production, sync for demo)
+    try:
+        log_engagement(req.user_id, req.venue_id, action_type, req.watch_time_seconds, weight)
+        return {"status": "logged", "action": action_type, "weight": weight}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ShareRequest(BaseModel):
+    user_id: str
+    venue_id: str
+    shared_with: list[str]  # List of friend user_ids
+
+@app.post("/share")
+async def share_venue(req: ShareRequest):
+    """
+    Share a venue with friends - creates viral spread in the graph.
+    Also logs engagement for the sharer.
+    """
+    from app.graph import log_share, log_engagement
+
+    try:
+        # Log as share engagement for the user
+        log_engagement(req.user_id, req.venue_id, "shared", 30, 3.0)
+
+        # Create share relationships in graph
+        log_share(req.user_id, req.venue_id, req.shared_with)
+
+        return {
+            "status": "shared",
+            "shared_with_count": len(req.shared_with)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/social/connect")
 async def social_connect(connection: Connection):
@@ -279,56 +390,116 @@ async def social_connect(connection: Connection):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/feed")
-async def get_feed(user_id: str, lat: float, lon: float):
+async def get_feed(user_id: str, lat: float, lon: float, radius_km: float = 2.0, limit: int = 20):
+    """
+    Enhanced feed with full algorithm transparency and explainability.
+    Returns venues ranked by multi-factor algorithm with detailed breakdown.
+    """
     from app.vector import get_user_vector, search_venues
-    from app.graph import get_social_scores
-    
-    # 1. Get User Vector
+    from app.graph import get_social_scores, get_trending_scores
+    import math
+
+    # 1. Get User Vector (real embeddings from Qdrant)
     user_vector = get_user_vector(user_id)
-    
+
     # 2. Vector Search (Candidate Generation)
-    candidates = search_venues(user_vector, lat, lon)
-    
+    candidates = search_venues(user_vector, lat, lon, radius_km=radius_km, limit=limit*2)
+
     if not candidates:
         return {"feed": []}
-        
+
     venue_ids = [c["venue_id"] for c in candidates]
-    
-    # 3. Social Reranking
+
+    # 3. Get all scoring factors
     social_scores = get_social_scores(venue_ids, user_id)
-    
-    # 4. Merge and Sort
+    trending_scores = get_trending_scores(venue_ids, hours=24)
+
+    # 4. Calculate proximity scores
+    def haversine_distance(lat1, lon1, lat2, lon2):
+        """Calculate distance in km between two lat/lon points"""
+        R = 6371  # Earth's radius in km
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+        c = 2 * math.asin(math.sqrt(a))
+        return R * c
+
+    # 5. Multi-factor ranking with explainability
     feed = []
     for candidate in candidates:
         venue_id = candidate["venue_id"]
-        vibe_score = candidate["score"]
-        
-        social_data = social_scores.get(venue_id, {"social_score": 0, "friend_activity": ""})
-        social_score = social_data["social_score"]
-        
-        # Final Score Formula: (VectorSimilarity * 0.7) + (SocialProofCount * 0.3)
-        # Note: Vector score is usually 0-1 (cosine), Social score can be higher.
-        # We might need to normalize social score, but for MVP we'll use raw.
-        # Assuming social score is roughly 0-20 range.
-        # Let's normalize social score by dividing by 20 (capping at 1.0) for the formula
-        norm_social = min(social_score / 20.0, 1.0)
-        
-        final_score = (vibe_score * 0.7) + (norm_social * 0.3)
-        
+        payload = candidate["payload"]
+
+        # Vector similarity (0-1, higher is better)
+        taste_score = candidate["score"]
+
+        # Social proof (normalize to 0-1, max expected ~50 points)
+        social_data = social_scores.get(venue_id, {"social_score": 0, "contributors": [], "friend_activity": ""})
+        social_raw = social_data["social_score"]
+        social_norm = min(social_raw / 50.0, 1.0)
+
+        # Proximity (0-1, closer is better)
+        venue_lat = payload.get("location", {}).get("lat", lat)
+        venue_lon = payload.get("location", {}).get("lon", lon)
+        distance_km = haversine_distance(lat, lon, venue_lat, venue_lon)
+        # Normalize: 0km = 1.0, 2km = 0.5, 4km+ = 0.0
+        proximity_score = max(0, 1.0 - (distance_km / (radius_km * 2)))
+
+        # Trending (0-1)
+        trending_data = trending_scores.get(venue_id, {"trending_score": 0, "recent_count": 0, "reason": ""})
+        trending_score = trending_data["trending_score"]
+
+        # Final weighted score
+        final_score = (
+            taste_score * 0.30 +
+            social_norm * 0.35 +
+            proximity_score * 0.20 +
+            trending_score * 0.10 +
+            0.05  # Diversity bonus (placeholder)
+        )
+
+        # Build explanation object
+        explanation = {
+            "taste_match": {
+                "score": round(taste_score, 2),
+                "reason": f"Matches your interests: {', '.join(payload.get('categories', [])[:3])}"
+            },
+            "social_proof": {
+                "score": round(social_norm, 2),
+                "raw_score": social_raw,
+                "contributors": social_data.get("contributors", []),
+                "reason": social_data.get("friend_activity", "No friend activity")
+            },
+            "proximity": {
+                "score": round(proximity_score, 2),
+                "distance_km": round(distance_km, 2),
+                "reason": f"{round(distance_km, 1)}km away (~{int(distance_km * 12)} min walk)"
+            },
+            "trending": {
+                "score": round(trending_score, 2),
+                "recent_count": trending_data.get("recent_count", 0),
+                "reason": trending_data.get("reason", "No recent activity")
+            }
+        }
+
         feed.append({
             "venue_id": venue_id,
-            "name": candidate["payload"].get("name", "Unknown Venue"),
-            "description": candidate["payload"].get("description", ""),
-            "match_score": round(final_score, 2),
-            "friend_activity": social_data["friend_activity"],
-            "vibe_match": round(vibe_score, 2),
-            "social_score": social_score
+            "name": payload.get("name", "Unknown Venue"),
+            "description": payload.get("description", ""),
+            "categories": payload.get("categories", []),
+            "neighborhood": payload.get("neighborhood", ""),
+            "price_tier": payload.get("price_tier", 2),
+            "video_url": payload.get("video_url", ""),
+            "location": payload.get("location", {}),
+            "final_score": round(final_score, 3),
+            "explanation": explanation
         })
-    
+
     # Sort by final score descending
-    feed.sort(key=lambda x: x["match_score"], reverse=True)
-    
-    return {"feed": feed}
+    feed.sort(key=lambda x: x["final_score"], reverse=True)
+
+    # Return top N
+    return {"feed": feed[:limit]}
 
 @app.post("/agent/action")
 async def agent_action(action: AgentAction):
