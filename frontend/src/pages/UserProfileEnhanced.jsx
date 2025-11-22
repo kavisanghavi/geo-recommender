@@ -140,20 +140,42 @@ export default function UserProfileEnhanced({ userId }) {
                     )}
                 </div>
 
+                {/* My Places (Saved Venues) */}
+                <div className="bg-white rounded-2xl p-6 shadow-sm">
+                    <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2 mb-4">
+                        <Bookmark className="w-5 h-5 text-blue-600" />
+                        My Places ({profile.watch_history?.filter(h => h.action === 'saved').length || 0})
+                    </h2>
+
+                    {!profile.watch_history || profile.watch_history.filter(h => h.action === 'saved').length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                            No saved places yet. Start saving venues you want to visit!
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-2 gap-4">
+                            {profile.watch_history
+                                .filter(h => h.action === 'saved')
+                                .map((item, idx) => (
+                                    <SavedPlaceCard key={idx} item={item} />
+                                ))}
+                        </div>
+                    )}
+                </div>
+
                 {/* Watch History */}
                 <div className="bg-white rounded-2xl p-6 shadow-sm">
                     <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2 mb-4">
                         <Clock className="w-5 h-5" />
-                        Watch History ({profile.watch_history?.length || 0})
+                        Recent Activity ({profile.watch_history?.length || 0})
                     </h2>
 
                     {!profile.watch_history || profile.watch_history.length === 0 ? (
                         <div className="text-center py-8 text-gray-500">
-                            No watch history yet
+                            No activity yet
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            {profile.watch_history.map((item, idx) => (
+                            {profile.watch_history.slice(0, 10).map((item, idx) => (
                                 <WatchHistoryItem key={idx} item={item} />
                             ))}
                         </div>
@@ -192,6 +214,47 @@ function FriendCard({ friend }) {
                             </span>
                         ))}
                     </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Saved Place Card Component
+function SavedPlaceCard({ item }) {
+    const getGradient = (categories) => {
+        const gradients = {
+            'cafe': 'from-purple-500 to-pink-500',
+            'restaurant': 'from-orange-500 to-red-500',
+            'bar': 'from-blue-500 to-cyan-500',
+            'gallery': 'from-green-500 to-teal-500',
+            'bakery': 'from-pink-500 to-yellow-500',
+        };
+        const category = categories?.[0] || 'restaurant';
+        return gradients[category] || gradients['restaurant'];
+    };
+
+    return (
+        <div className="border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg transition-shadow">
+            <div className={`h-24 bg-gradient-to-br ${getGradient(item.venue?.categories)} relative`}>
+                <div className="absolute bottom-2 left-2">
+                    {item.venue?.categories?.slice(0, 2).map((cat, idx) => (
+                        <span key={idx} className="inline-block px-2 py-1 bg-white/20 backdrop-blur text-white text-xs rounded mr-1">
+                            {cat}
+                        </span>
+                    ))}
+                </div>
+            </div>
+            <div className="p-4">
+                <h4 className="font-semibold text-gray-900 mb-1 truncate">
+                    {item.venue?.name || 'Unknown Venue'}
+                </h4>
+                <p className="text-xs text-gray-600 mb-2 line-clamp-2">
+                    {item.venue?.description || ''}
+                </p>
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span>📍 {item.venue?.neighborhood}</span>
+                    <span>{'$'.repeat(item.venue?.price_tier || 1)}</span>
                 </div>
             </div>
         </div>

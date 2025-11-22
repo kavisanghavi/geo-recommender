@@ -24,7 +24,7 @@ def get_social_scores(venue_ids: list[str], user_id: str) -> dict[str, dict]:
 
     // Direct friends engagement
     OPTIONAL MATCH (u)-[:FRIENDS_WITH]-(friend)-[r:ENGAGED_WITH]->(v)
-    WITH venue_id, collect(DISTINCT {
+    WITH u, v, venue_id, collect(DISTINCT {
         name: friend.name,
         type: r.type,
         watch_time: r.watch_time,
@@ -34,7 +34,7 @@ def get_social_scores(venue_ids: list[str], user_id: str) -> dict[str, dict]:
     // Friends who shared this venue
     OPTIONAL MATCH (u)-[:FRIENDS_WITH]-(friend)-[s:SHARED_WITH]->(other)
     WHERE EXISTS((other)-[:RECEIVED_SHARE]->(v))
-    WITH venue_id, friends_activity, collect(DISTINCT {
+    WITH u, v, venue_id, friends_activity, collect(DISTINCT {
         name: friend.name,
         type: 'shared'
     }) as shares

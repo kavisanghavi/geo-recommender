@@ -67,6 +67,41 @@ async def debug_reset(clear_venues: bool = False):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class ClearActivityRequest(BaseModel):
+    user_id: str
+
+@app.post("/debug/clear-activity")
+async def clear_user_activity(req: ClearActivityRequest):
+    """
+    Clear all engagement/activity for a specific user.
+    Useful for testing how watch time affects recommendations.
+    """
+    from app.graph import driver
+
+    try:
+        with driver.session() as session:
+            # Remove all ENGAGED_WITH relationships for this user
+            session.run("""
+                MATCH (u:User {id: $user_id})-[r:ENGAGED_WITH]->()
+                DELETE r
+            """, user_id=req.user_id)
+
+            # Remove all SHARED_WITH and RECEIVED_SHARE relationships
+            session.run("""
+                MATCH (u:User {id: $user_id})-[r:SHARED_WITH]->()
+                DELETE r
+            """, user_id=req.user_id)
+
+            session.run("""
+                MATCH ()-[r:RECEIVED_SHARE]->(v:Venue)
+                WHERE r.from = $user_id
+                DELETE r
+            """, user_id=req.user_id)
+
+        return {"status": "activity_cleared", "user_id": req.user_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 class CreateUserRequest(BaseModel):
     interests: list[str] = None
 

@@ -23,7 +23,7 @@ def get_user_vector(user_id: str) -> list[float]:
         points = client.retrieve(
             collection_name="users",
             ids=[user_index],
-            with_vector=True
+            with_vectors=True
         )
 
         if points and len(points) > 0:

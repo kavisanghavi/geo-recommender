@@ -127,16 +127,29 @@ export default function Feed() {
                         feed.map((item) => (
                             <div key={item.venue_id} className="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-shadow border border-gray-100">
                                 <div className="flex">
-                                    {/* Left: Image Placeholder */}
-                                    <div className="w-1/3 bg-gray-200 min-h-[200px] relative">
-                                        <img
-                                            src={`https://source.unsplash.com/random/400x400/?${item.payload?.category || 'restaurant'}`}
-                                            alt={item.name}
-                                            className="w-full h-full object-cover opacity-90"
-                                            onError={(e) => e.target.style.display = 'none'}
-                                        />
-                                        <div className="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide text-gray-800">
-                                            {item.payload?.category}
+                                    {/* Left: Gradient Background */}
+                                    <div className="w-1/3 min-h-[200px] relative" style={{
+                                        background: item.categories?.[0] === 'cafe' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' :
+                                                   item.categories?.[0] === 'bar' ? 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' :
+                                                   item.categories?.[0] === 'gallery' ? 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' :
+                                                   item.categories?.[0] === 'bakery' ? 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' :
+                                                   'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+                                    }}>
+                                        <div className="absolute inset-0 flex items-center justify-center text-white">
+                                            <div className="text-6xl opacity-20">
+                                                {item.categories?.[0] === 'cafe' && '☕'}
+                                                {item.categories?.[0] === 'bar' && '🍸'}
+                                                {item.categories?.[0] === 'gallery' && '🎨'}
+                                                {item.categories?.[0] === 'bakery' && '🥐'}
+                                                {item.categories?.[0] === 'restaurant' && '🍽️'}
+                                            </div>
+                                        </div>
+                                        <div className="absolute bottom-4 left-4">
+                                            {item.categories?.slice(0, 2).map((cat, idx) => (
+                                                <span key={idx} className="inline-block px-2 py-1 bg-white/20 backdrop-blur text-white text-xs rounded mr-1">
+                                                    {cat}
+                                                </span>
+                                            ))}
                                         </div>
                                     </div>
 
@@ -153,16 +166,95 @@ export default function Feed() {
                                             </div>
                                             <p className="text-gray-600 text-sm line-clamp-2 mb-4">{item.description}</p>
 
-                                            {/* "Why" Badges */}
-                                            <div className="flex flex-wrap gap-2 mb-4">
-                                                {item.friend_activity && (
-                                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium">
-                                                        <Users className="w-4 h-4" />
-                                                        {item.friend_activity}
+                                            {/* Algorithm Transparency - Score Breakdown */}
+                                            {item.explanation && (
+                                                <div className="mb-4">
+                                                    {/* Final Score */}
+                                                    <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-3 rounded-lg mb-3">
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <div>
+                                                                <div className="text-xs opacity-90">Match Score</div>
+                                                                <div className="text-2xl font-bold">{Math.round(item.final_score * 100)}%</div>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <div className="text-xs opacity-75 max-w-[200px]">
+                                                                    0.3×Taste + 0.4×Social + 0.2×Proximity + 0.1×Trending
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-[10px] bg-white/20 rounded px-2 py-1">
+                                                            ⏱️ Social score: Only 10s+ watch times count
+                                                        </div>
                                                     </div>
-                                                )}
-                                                {/* Only show Nearby if we actually calculated it (omitted for now as we mock location) */}
-                                            </div>
+
+                                                    <div className="space-y-2">
+                                                        {/* Taste Match */}
+                                                        <div className="text-xs">
+                                                            <div className="flex justify-between mb-1">
+                                                                <span className="text-gray-700 font-medium">Taste Match (30%)</span>
+                                                                <span className="font-bold text-blue-600">{Math.round(item.explanation.taste_match.score * 100)}%</span>
+                                                            </div>
+                                                            <div className="w-full h-1.5 bg-gray-200 rounded-full">
+                                                                <div className="h-full bg-blue-500 rounded-full" style={{ width: `${item.explanation.taste_match.score * 100}%` }} />
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Social Proof with Friend Details */}
+                                                        <div className="text-xs">
+                                                            <div className="flex justify-between mb-1">
+                                                                <span className="text-gray-700 font-medium">Friend Activity (40%)</span>
+                                                                <span className="font-bold text-indigo-600">{Math.round(item.explanation.social_proof.score * 100)}%</span>
+                                                            </div>
+                                                            <div className="w-full h-1.5 bg-gray-200 rounded-full mb-2">
+                                                                <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${item.explanation.social_proof.score * 100}%` }} />
+                                                            </div>
+                                                            {item.explanation.social_proof.contributors.length > 0 && (
+                                                                <div className="space-y-1 pl-2">
+                                                                    {item.explanation.social_proof.contributors.slice(0, 3).map((c, idx) => (
+                                                                        <div key={idx} className="flex justify-between items-center bg-indigo-50 p-1.5 rounded">
+                                                                            <span className="text-gray-700">
+                                                                                {c.friend ? (
+                                                                                    <>
+                                                                                        {c.friend}{' '}
+                                                                                        {c.action === 'shared' && '📤'}
+                                                                                        {c.action === 'saved' && '💾'}
+                                                                                        {c.action === 'viewed' && '👀'}
+                                                                                    </>
+                                                                                ) : (
+                                                                                    `${c.mutuals} mutuals`
+                                                                                )}
+                                                                            </span>
+                                                                            <span className="text-green-600 font-bold text-[10px]">+{c.boost}</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Proximity */}
+                                                        <div className="text-xs">
+                                                            <div className="flex justify-between mb-1">
+                                                                <span className="text-gray-700 font-medium">Proximity (20%)</span>
+                                                                <span className="font-bold text-green-600">{Math.round(item.explanation.proximity.score * 100)}%</span>
+                                                            </div>
+                                                            <div className="w-full h-1.5 bg-gray-200 rounded-full">
+                                                                <div className="h-full bg-green-500 rounded-full" style={{ width: `${item.explanation.proximity.score * 100}%` }} />
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Trending */}
+                                                        <div className="text-xs">
+                                                            <div className="flex justify-between mb-1">
+                                                                <span className="text-gray-700 font-medium">Trending (10%)</span>
+                                                                <span className="font-bold text-orange-600">{Math.round(item.explanation.trending.score * 100)}%</span>
+                                                            </div>
+                                                            <div className="w-full h-1.5 bg-gray-200 rounded-full">
+                                                                <div className="h-full bg-orange-500 rounded-full" style={{ width: `${item.explanation.trending.score * 100}%` }} />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
 
                                         <div className="flex gap-3 mt-4">
