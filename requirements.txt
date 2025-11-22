@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+celery
+redis
+neo4j
+qdrant-client
+langgraph
+langchain-openai
+python-dotenv
+openai
+Faker
