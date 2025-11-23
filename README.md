@@ -4,7 +4,6 @@
 
 A video-first recommendation engine that combines **vector similarity search**, **social graph analysis**, and **location-based filtering** to help users discover local businesses through short-form video content shared by their friends.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11-blue.svg)
 ![React](https://img.shields.io/badge/react-18.3-blue.svg)
 
@@ -421,26 +420,5 @@ Contributions are welcome! Please:
 
 ## 📄 License
 
-MIT License - see LICENSE file for details
-
+No License / All Rights Reserved
 ---
-
-## 🙏 Acknowledgments
-
-- Built with assistance from **Claude Code** (Anthropic)
-- Inspired by popular short-video apps and Yelp
-- NYC venue data generated using Faker and OpenAI
-- Icons by Lucide Icons
-
----
-
-## 📞 Support
-
-For questions or issues:
-- Open a GitHub issue
-- Check the [documentation](docs/)
-- Review the [algorithm explanation](docs/ALGORITHM_EXPLAINED.md)
-
----
-
-**Happy discovering! 🎉**

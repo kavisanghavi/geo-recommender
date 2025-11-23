@@ -37,9 +37,9 @@ The Booking Agent transforms passive video watching into active booking intent. 
 
 ```mermaid
 graph LR
-    Start([User clicks<br/>"Want to Go"]) --> Extract[Extract Intent<br/>🧠 LLM analyzes video]
-    Extract --> Check[Check Availability<br/>✅ Mock API call]
-    Check --> Proposal[Create Proposal<br/>📝 Format details]
+    Start([User clicks<br/>Want to Go]) --> Extract[Extract Intent<br/>LLM analyzes video]
+    Extract --> Check[Check Availability<br/>Mock API call]
+    Check --> Proposal[Create Proposal<br/>Format details]
     Proposal --> End([Return to User])
     
     style Start fill:#e3f2fd

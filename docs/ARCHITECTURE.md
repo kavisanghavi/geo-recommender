@@ -113,9 +113,9 @@ graph LR
         User2 -.->|FRIENDS_WITH| User3
         User1 -.->|FRIENDS_WITH| User3
 
-        User1 -->|WATCHED<br/>{action, watch_time,<br/>timestamp}| Video1
-        User2 -->|WATCHED<br/>{action:'saved'}| Video1
-        User3 -->|WATCHED<br/>{action:'shared'}| Video2
+        User1 -->|WATCHED (action, watch_time, timestamp)| Video1
+        User2 -->|WATCHED saved| Video1
+        User3 -->|WATCHED shared| Video2
 
         Venue1 -->|POSTED| Video1
         Venue1 -->|POSTED| Video2
