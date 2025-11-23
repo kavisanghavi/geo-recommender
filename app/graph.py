@@ -292,7 +292,7 @@ def log_video_engagement(user_id: str, video_id: str, action_type: str, watch_ti
     action_type: 'viewed', 'skipped', 'saved', 'shared'
 
     For save/share actions, we CREATE a new relationship to preserve the action.
-    For view actions, we MERGE to update existing relationships.
+    For view actions, we MERGE but DO NOT overwrite existing save/share actions.
     """
     # For save/share, create a new relationship to preserve the action
     # For views, merge to update the existing relationship
@@ -309,11 +309,21 @@ def log_video_engagement(user_id: str, video_id: str, action_type: str, watch_ti
         """
     else:
         # For views/skips, update or create
+        # BUT: Do not overwrite existing save/share actions
         query = """
         MATCH (u:User {id: $user_id})
         MATCH (vid:Video {id: $video_id})
         MERGE (u)-[r:WATCHED]->(vid)
-        SET r.action = $action,
+        ON CREATE SET 
+            r.action = $action,
+            r.watch_time = $watch_time,
+            r.weight = $weight,
+            r.timestamp = datetime()
+        ON MATCH SET
+            r.action = CASE 
+                WHEN r.action IN ['saved', 'shared'] THEN r.action
+                ELSE $action
+            END,
             r.watch_time = $watch_time,
             r.weight = $weight,
             r.timestamp = datetime()
