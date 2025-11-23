@@ -48,7 +48,7 @@ This guide will help you test and validate the watch time algorithm and social p
 
 5. **Jesus Watches the Venue for 15 Seconds**
    - Go to Feed → Select Jesus Nelson
-   - Click "TikTok View"
+   - Click "Immersive View"
    - Swipe until you find "Paula Cooper SoHo"
    - **WAIT 15 SECONDS** (watch the timer in the background)
    - You should see engagement being logged every 5 seconds
@@ -72,7 +72,7 @@ This guide will help you test and validate the watch time algorithm and social p
 8. **Compare: Short Watch (Under 10s) Doesn't Count**
    - Still as Jesus Nelson
    - Go to Profiles → Click "🗑️ Clear Activity" again
-   - Go to TikTok View
+   - Go to Immersive View
    - Find a DIFFERENT venue
    - **Watch for only 5 seconds** then swipe away quickly
    - Go back to Angela's feed
@@ -90,7 +90,7 @@ This guide will help you test and validate the watch time algorithm and social p
    - Profiles → Select Jesus Nelson → Clear Activity
 
 2. **Test Venue 1: Jesus SHARES**
-   - Switch to Jesus in TikTok View
+   - Switch to Jesus in Immersive View
    - Find "Blue Note Greenpoint"
    - Watch for 5 seconds
    - Click "Share" button (green button)
@@ -157,7 +157,7 @@ This guide will help you test and validate the watch time algorithm and social p
    - Pick a test venue (e.g., "Clinton St. Baking")
 
 2. **Watch for Exactly 5 Seconds**
-   - Switch to Jesus in TikTok View
+   - Switch to Jesus in Immersive View
    - Find "Clinton St. Baking"
    - Start watching
    - **After 5 seconds exactly**, swipe away
@@ -175,7 +175,7 @@ This guide will help you test and validate the watch time algorithm and social p
 
 4. **Now Watch for 12 Seconds**
    - Clear Jesus's activity again
-   - Go to TikTok View
+   - Go to Immersive View
    - Find same venue "Clinton St. Baking"
    - **Watch for 12+ seconds**
    - Swipe away
@@ -283,7 +283,7 @@ Final Score = (0.3 × Taste Match %) +
 
 ## 🐛 Common Issues & Debugging
 
-### Issue: "No venues found" in TikTok View
+### Issue: "No venues found" in Immersive View
 
 **Solution:**
 ```bash
@@ -397,7 +397,7 @@ Perfect for showing stakeholders:
 ### Demo 1: Watch Time Filter (2 minutes)
 1. Switch to Jesus Nelson (Angela's friend)
 2. Clear Jesus's activity
-3. Show TikTok view, find a venue
+3. Show Immersive view, find a venue
 4. "I'm going to watch this for only 5 seconds" → swipe away
 5. Switch to Angela's feed
 6. "Notice: Jesus's 5-second view doesn't appear in social proof"

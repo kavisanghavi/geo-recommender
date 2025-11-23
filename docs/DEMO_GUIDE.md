@@ -1,13 +1,13 @@
-# 🎬 TikTok-Style Geo Discovery - Demo Guide
+# 🎬 Immersive Geo Discovery - Demo Guide
 
 ## Overview
 
-This enhanced version transforms the geo-recommender into a **TikTok-style location discovery app** with:
+This enhanced version transforms the geo-recommender into a **immersive location discovery app** with:
 - ✅ Real NYC venue data across 10 neighborhoods
 - ✅ Realistic user personas with interest-based embeddings
 - ✅ Simulated engagement patterns (watch times, shares, saves, skips)
 - ✅ **Full algorithm transparency** with explainability
-- ✅ TikTok-style vertical swipe UI
+- ✅ Immersive vertical swipe UI
 - ✅ Watch time tracking and learning
 
 ---
@@ -71,9 +71,9 @@ Open [http://localhost:5173](http://localhost:5173)
 
 ## 📱 Features Demo
 
-### 1. **TikTok-Style Feed** 👆
+### 1. **Immersive Feed** 👆
 
-**Path:** Feed → TikTok View button
+**Path:** Feed → Immersive View button
 
 **What to show:**
 1. Select a user from dropdown
@@ -172,8 +172,8 @@ Final Score =
 
 ### Act 1: Show the Algorithm (2 min)
 
-1. **Start in TikTok view**
-   - "This is a TikTok-style location discovery app"
+1. **Start in Immersive view**
+   - "This is a immersive location discovery app"
    - Select user "Sarah Chen" (Nightlife Enthusiast)
 
 2. **Swipe through 2-3 venues**
@@ -371,7 +371,7 @@ echo $OPENAI_API_KEY
 
 ## 🎨 UI/UX Highlights
 
-- **Vertical swipe** = natural TikTok interaction
+- **Vertical swipe** = natural short-video interaction
 - **Explanation panel** = tap to expand algorithm breakdown
 - **Real-time tracking** = watch timer visible
 - **Social badges** = "Sarah shared this" front and center
@@ -407,7 +407,7 @@ echo $OPENAI_API_KEY
 
 ## 🎉 Success!
 
-You now have a fully functional **TikTok-style location discovery app** with:
+You now have a fully functional **immersive location discovery app** with:
 - ✅ 150 real NYC venues
 - ✅ 200 simulated users with personas
 - ✅ 6,000+ engagement records

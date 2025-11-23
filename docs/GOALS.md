@@ -68,9 +68,11 @@ A hybrid recommendation system that:
 - [x] Interactive UI for simulation and testing
 - [x] Async processing for scalability
 - [x] Agentic booking workflow (LangGraph)
+- [x] Immersive video feed with watch time tracking
+- [x] Algorithm transparency and explainability
 
 ### Future Enhancements
-- [ ] Real-time updates (WebSockets for live friend activity)
+- [ ] Real-time updates (WebSockets for live friend activity) - *Currently supported via manual refresh*
 - [ ] Mobile app (React Native)
 - [ ] Advanced personalization (collaborative filtering)
 - [ ] Event-based recommendations (concerts, pop-ups)

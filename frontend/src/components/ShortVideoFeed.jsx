@@ -2,13 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { ChevronUp, ChevronDown, Share2, Bookmark, Users, MapPin, TrendingUp, Target, Info } from 'lucide-react';
 
-export default function TikTokFeed({ userId }) {
+export default function ShortVideoFeed({ userId }) {
     const [venues, setVenues] = useState([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [watchStartTime, setWatchStartTime] = useState(Date.now());
     const [loading, setLoading] = useState(true);
+    const [saved, setSaved] = useState(false);
+    const [shared, setShared] = useState(false);
     const watchTimerRef = useRef(null);
     const watchStartTimeRef = useRef(Date.now());
+
+    // Debug log
+    console.log('ShortVideoFeed loaded with userId:', userId);
 
     // Fetch video feed
     useEffect(() => {
@@ -37,6 +42,10 @@ export default function TikTokFeed({ userId }) {
         watchStartTimeRef.current = startTime;
         setWatchStartTime(startTime);
 
+        // Reset saved/shared state for new video
+        setSaved(false);
+        setShared(false);
+
         // Clear any existing interval
         if (watchTimerRef.current) {
             clearInterval(watchTimerRef.current);
@@ -59,14 +68,18 @@ export default function TikTokFeed({ userId }) {
 
     const logEngagement = async (videoId, watchTime, action) => {
         try {
-            await axios.post('http://localhost:8000/engage-video', {
+            const payload = {
                 user_id: userId,
                 video_id: videoId,
                 watch_time_seconds: watchTime,
                 action: action
-            });
+            };
+            console.log('Logging engagement:', payload);
+            const response = await axios.post('http://localhost:8000/engage-video', payload);
+            console.log('Engagement logged successfully:', response.data);
         } catch (e) {
             console.error('Failed to log engagement:', e);
+            throw e; // Re-throw so handleSave/handleShare can catch it
         }
     };
 
@@ -97,20 +110,37 @@ export default function TikTokFeed({ userId }) {
     };
 
     const handleSave = async () => {
-        const watchTime = Math.floor((Date.now() - watchStartTimeRef.current) / 1000);
-        const video = venues[currentIndex];
+        try {
+            const watchTime = Math.floor((Date.now() - watchStartTimeRef.current) / 1000);
+            const video = venues[currentIndex];
 
-        await logEngagement(video.video_id, watchTime, 'save');
-        alert('Saved! ✓');
+            console.log('💾 SAVE BUTTON CLICKED! Video:', video.video_id, 'watch time:', watchTime);
+            setSaved(true);
+            await logEngagement(video.video_id, watchTime, 'save');
+            console.log('✅ Save successful!');
+            alert('✓ Saved! Check the console for details.');
+        } catch (error) {
+            console.error('❌ Save failed:', error);
+            setSaved(false);
+            alert('❌ Failed to save video. Check console for details.');
+        }
     };
 
     const handleShare = async () => {
-        const watchTime = Math.floor((Date.now() - watchStartTimeRef.current) / 1000);
-        const video = venues[currentIndex];
+        try {
+            const watchTime = Math.floor((Date.now() - watchStartTimeRef.current) / 1000);
+            const video = venues[currentIndex];
 
-        // For demo, just log the share
-        await logEngagement(video.video_id, watchTime, 'share');
-        alert('Shared with friends! 🎉');
+            console.log('📤 SHARE BUTTON CLICKED! Video:', video.video_id, 'watch time:', watchTime);
+            setShared(true);
+            await logEngagement(video.video_id, watchTime, 'share');
+            console.log('✅ Share successful!');
+            alert('🎉 Shared with friends! Check the console for details.');
+        } catch (error) {
+            console.error('❌ Share failed:', error);
+            setShared(false);
+            alert('❌ Failed to share video. Check console for details.');
+        }
     };
 
     if (loading) {
@@ -219,17 +249,23 @@ export default function TikTokFeed({ userId }) {
                     <div className="flex gap-3 mb-6">
                         <button
                             onClick={handleSave}
-                            className="flex-1 flex items-center justify-center gap-2 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition"
+                            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition ${saved
+                                    ? 'bg-green-600 text-white'
+                                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                                }`}
                         >
                             <Bookmark className="w-5 h-5" />
-                            Save
+                            {saved ? '✓ Saved' : 'Save'}
                         </button>
                         <button
                             onClick={handleShare}
-                            className="flex-1 flex items-center justify-center gap-2 py-3 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 transition"
+                            className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition ${shared
+                                    ? 'bg-purple-600 text-white'
+                                    : 'bg-green-600 text-white hover:bg-green-700'
+                                }`}
                         >
                             <Share2 className="w-5 h-5" />
-                            Share
+                            {shared ? '✓ Shared' : 'Share'}
                         </button>
                     </div>
 

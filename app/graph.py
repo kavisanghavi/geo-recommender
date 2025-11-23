@@ -290,16 +290,35 @@ def log_video_engagement(user_id: str, video_id: str, action_type: str, watch_ti
     """
     Log user engagement with video-level tracking.
     action_type: 'viewed', 'skipped', 'saved', 'shared'
+
+    For save/share actions, we CREATE a new relationship to preserve the action.
+    For view actions, we MERGE to update existing relationships.
     """
-    query = """
-    MATCH (u:User {id: $user_id})
-    MATCH (vid:Video {id: $video_id})
-    MERGE (u)-[r:WATCHED]->(vid)
-    SET r.action = $action,
-        r.watch_time = $watch_time,
-        r.weight = $weight,
-        r.timestamp = datetime()
-    """
+    # For save/share, create a new relationship to preserve the action
+    # For views, merge to update the existing relationship
+    if action_type in ['saved', 'shared']:
+        query = """
+        MATCH (u:User {id: $user_id})
+        MATCH (vid:Video {id: $video_id})
+        CREATE (u)-[r:WATCHED {
+            action: $action,
+            watch_time: $watch_time,
+            weight: $weight,
+            timestamp: datetime()
+        }]->(vid)
+        """
+    else:
+        # For views/skips, update or create
+        query = """
+        MATCH (u:User {id: $user_id})
+        MATCH (vid:Video {id: $video_id})
+        MERGE (u)-[r:WATCHED]->(vid)
+        SET r.action = $action,
+            r.watch_time = $watch_time,
+            r.weight = $weight,
+            r.timestamp = datetime()
+        """
+
     with driver.session() as session:
         session.run(
             query,

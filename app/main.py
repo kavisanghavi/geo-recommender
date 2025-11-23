@@ -110,6 +110,7 @@ async def clear_user_activity(req: ClearActivityRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 class CreateUserRequest(BaseModel):
+    name: str = None
     interests: list[str] = None
 
 @app.post("/debug/user")
@@ -124,8 +125,8 @@ async def debug_create_user(request: CreateUserRequest = Body(...)):
     
     fake = Faker()
     user_id = f"user_{uuid.uuid4().hex[:8]}"
-    name = fake.name()
-    
+    name = request.name if request.name else fake.name()
+
     interests = request.interests
     if interests is None:
         possible_interests = ["Italian", "Mexican", "Japanese", "Burgers", "Coffee", "Cocktails", "Jazz", "Techno", "Pop", "Rock", "Museums", "Parks", "Theater", "Sports"]
@@ -314,6 +315,164 @@ async def get_venues(search: str = None):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/venues-with-videos")
+async def get_venues_with_videos(limit: int = 20):
+    """
+    Get venues along with their sample videos for user onboarding.
+    Each venue includes 1-2 sample videos for engagement.
+    """
+    from app.vector import client
+    from app.graph import driver
+
+    try:
+        # Fetch venues from Qdrant
+        points, _ = client.scroll(
+            collection_name="venues",
+            limit=limit,
+            with_payload=True
+        )
+
+        venues_data = []
+
+        with driver.session() as session:
+            for p in points:
+                venue_id = p.payload.get("venue_id")
+
+                # Get videos for this venue from Neo4j
+                videos_result = session.run("""
+                    MATCH (venue:Venue {id: $venue_id})-[:POSTED]->(video:Video)
+                    RETURN video.id as id, video.title as title, video.description as description
+                    LIMIT 2
+                """, venue_id=venue_id)
+
+                videos = [{"id": r["id"], "title": r["title"], "description": r["description"]}
+                          for r in videos_result]
+
+                venues_data.append({
+                    "venue_id": venue_id,
+                    "name": p.payload.get("name"),
+                    "category": p.payload.get("category"),
+                    "description": p.payload.get("description"),
+                    "location": p.payload.get("location"),
+                    "videos": videos
+                })
+
+        return {"venues": venues_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/businesses")
+async def get_all_businesses():
+    """
+    Get all venues/businesses with complete information and all their videos.
+    Includes engagement stats for each video.
+    Uses Neo4j as source of truth for venues to ensure all venues are included.
+    """
+    from app.vector import client
+    from app.graph import driver
+
+    try:
+        businesses = []
+
+        with driver.session() as session:
+            # Get all venues from Neo4j (source of truth)
+            venues_result = session.run("""
+                MATCH (venue:Venue)
+                RETURN venue.id as venue_id,
+                       venue.name as name,
+                       venue.category as category,
+                       venue.description as description,
+                       venue.location as location,
+                       venue.address as address,
+                       venue.neighborhood as neighborhood,
+                       venue.price_tier as price_tier
+                ORDER BY venue.name
+            """)
+
+            for venue_record in venues_result:
+                venue_id = venue_record["venue_id"]
+
+                # Get all videos and engagement stats for this venue
+                videos_result = session.run("""
+                    MATCH (venue:Venue {id: $venue_id})-[:POSTED]->(video:Video)
+                    OPTIONAL MATCH (video)<-[r:WATCHED]-(u:User)
+                    WITH video,
+                         COUNT(DISTINCT u) as total_views,
+                         COUNT(DISTINCT CASE WHEN r.action = 'saved' THEN u END) as saves,
+                         COUNT(DISTINCT CASE WHEN r.action = 'shared' THEN u END) as shares,
+                         SUM(CASE WHEN r.watch_time >= 10 THEN 1 ELSE 0 END) as quality_views
+                    RETURN video.id as id,
+                           video.title as title,
+                           video.description as description,
+                           video.video_type as video_type,
+                           video.categories as categories,
+                           video.created_at as created_at,
+                           total_views, saves, shares, quality_views
+                    ORDER BY video.created_at DESC
+                """, venue_id=venue_id)
+
+                videos = []
+                for r in videos_result:
+                    videos.append({
+                        "id": r["id"],
+                        "title": r["title"],
+                        "description": r["description"],
+                        "video_type": r["video_type"],
+                        "categories": r["categories"] or [],
+                        "created_at": r["created_at"],
+                        "engagement": {
+                            "total_views": r["total_views"] or 0,
+                            "saves": r["saves"] or 0,
+                            "shares": r["shares"] or 0,
+                            "quality_views": r["quality_views"] or 0
+                        }
+                    })
+
+                # Try to get additional metadata from Qdrant if available
+                try:
+                    qdrant_data = client.scroll(
+                        collection_name="venues",
+                        scroll_filter={
+                            "must": [
+                                {
+                                    "key": "venue_id",
+                                    "match": {"value": venue_id}
+                                }
+                            ]
+                        },
+                        limit=1,
+                        with_payload=True
+                    )
+                    if qdrant_data[0]:
+                        qdrant_payload = qdrant_data[0][0].payload
+                        # Enhance with Qdrant data if Neo4j data is missing
+                        if not venue_record["category"] and qdrant_payload.get("category"):
+                            venue_record["category"] = qdrant_payload.get("category")
+                        if not venue_record["description"] and qdrant_payload.get("description"):
+                            venue_record["description"] = qdrant_payload.get("description")
+                except:
+                    pass  # If Qdrant doesn't have this venue, just use Neo4j data
+
+                businesses.append({
+                    "venue_id": venue_id,
+                    "name": venue_record["name"],
+                    "category": venue_record["category"],
+                    "description": venue_record["description"],
+                    "location": venue_record["location"],
+                    "address": venue_record["address"],
+                    "neighborhood": venue_record["neighborhood"],
+                    "price_tier": venue_record["price_tier"],
+                    "total_videos": len(videos),
+                    "videos": videos
+                })
+
+        # Sort by total videos (most active first)
+        businesses.sort(key=lambda x: x["total_videos"], reverse=True)
+
+        return {"businesses": businesses, "total": len(businesses)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/debug/map-data")
 async def get_map_data():
     """
@@ -382,7 +541,7 @@ class VideoEngagementRequest(BaseModel):
 async def log_video_engagement_endpoint(req: VideoEngagementRequest):
     """
     Log user engagement with video-level tracking.
-    Primary endpoint for TikTok-style video interactions.
+    Primary endpoint for short-video interactions.
     """
     from app.graph import log_video_engagement
 
@@ -426,7 +585,7 @@ class EngagementRequest(BaseModel):
 async def log_engagement_endpoint(req: EngagementRequest):
     """
     LEGACY: Log user engagement with watch time tracking.
-    This is the primary endpoint for TikTok-style interactions.
+    This is the primary endpoint for short-video interactions.
     """
     from app.graph import log_engagement
 

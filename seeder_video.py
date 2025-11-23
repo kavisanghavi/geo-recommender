@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Video-Centric NYC Seeder - TikTok/Reels for Local Businesses
+Video-Centric NYC Seeder - Short Video/Reels for Local Businesses
 
 This script generates:
 1. 150 NYC venues (businesses) across 10 neighborhoods

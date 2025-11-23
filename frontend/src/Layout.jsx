@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { MapPin, Users, UserPlus, Home, Activity } from 'lucide-react';
+import { MapPin, Users, UserPlus, Home, Building2 } from 'lucide-react';
 import clsx from 'clsx';
 
 export default function Layout() {
@@ -10,6 +10,7 @@ export default function Layout() {
         { icon: Home, label: 'Feed', path: '/' },
         { icon: UserPlus, label: 'Create User', path: '/create' },
         { icon: Users, label: 'Profiles', path: '/profiles' },
+        { icon: Building2, label: 'Businesses', path: '/businesses' },
     ];
 
     return (

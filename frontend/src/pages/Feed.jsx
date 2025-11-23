@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { MapPin, Users, Star, ArrowRight, Smartphone, LayoutGrid, Info } from 'lucide-react';
-import TikTokFeed from '../components/TikTokFeed';
+import ShortVideoFeed from '../components/ShortVideoFeed';
 
 // Tooltip Component
 function Tooltip({ children, content }) {
@@ -31,7 +31,7 @@ export default function Feed() {
     const [selectedUserId, setSelectedUserId] = useState(null);
     const [feed, setFeed] = useState([]);
     const [loading, setLoading] = useState(false);
-    const [viewMode, setViewMode] = useState('tiktok'); // 'tiktok' or 'grid'
+    const [viewMode, setViewMode] = useState('immersive'); // 'immersive' or 'grid'
 
     // Fetch users for selector
     useEffect(() => {
@@ -77,8 +77,8 @@ export default function Feed() {
         }
     };
 
-    // TikTok mode - full screen
-    if (viewMode === 'tiktok' && selectedUserId) {
+    // Immersive mode - full screen
+    if (viewMode === 'immersive' && selectedUserId) {
         return (
             <div className="h-full relative">
                 {/* User Selector Overlay */}
@@ -102,7 +102,7 @@ export default function Feed() {
                     </button>
                 </div>
 
-                <TikTokFeed userId={selectedUserId} />
+                <ShortVideoFeed userId={selectedUserId} />
             </div>
         );
     }
@@ -118,11 +118,11 @@ export default function Feed() {
                 </div>
                 <div className="flex items-center gap-4">
                     <button
-                        onClick={() => setViewMode('tiktok')}
+                        onClick={() => setViewMode('immersive')}
                         className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
                     >
                         <Smartphone className="w-4 h-4" />
-                        TikTok View
+                        Immersive View
                     </button>
                     <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-gray-600">Viewing as:</span>
@@ -153,11 +153,11 @@ export default function Feed() {
                                     {/* Left: Gradient Background */}
                                     <div className="w-1/3 min-h-[200px] relative" style={{
                                         background: item.gradient ||
-                                                   (item.categories?.[0] === 'cafe' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' :
-                                                   item.categories?.[0] === 'bar' ? 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' :
-                                                   item.categories?.[0] === 'gallery' ? 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' :
-                                                   item.categories?.[0] === 'bakery' ? 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' :
-                                                   'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)')
+                                            (item.categories?.[0] === 'cafe' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' :
+                                                item.categories?.[0] === 'bar' ? 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' :
+                                                    item.categories?.[0] === 'gallery' ? 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' :
+                                                        item.categories?.[0] === 'bakery' ? 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' :
+                                                            'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)')
                                     }}>
                                         <div className="absolute inset-0 flex items-center justify-center text-white">
                                             <div className="text-6xl opacity-20">
