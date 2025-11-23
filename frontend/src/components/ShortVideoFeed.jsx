@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { ChevronUp, ChevronDown, Share2, Bookmark, Users, MapPin, TrendingUp, Target, Info } from 'lucide-react';
+import { ChevronUp, ChevronDown, Share2, Bookmark, Users, MapPin, TrendingUp, Target, Info, Calendar, Check, X } from 'lucide-react';
 
 export default function ShortVideoFeed({ userId }) {
     const [venues, setVenues] = useState([]);
@@ -9,6 +9,8 @@ export default function ShortVideoFeed({ userId }) {
     const [loading, setLoading] = useState(true);
     const [saved, setSaved] = useState(false);
     const [shared, setShared] = useState(false);
+    const [bookingState, setBookingState] = useState(null);
+    const [isBookingLoading, setIsBookingLoading] = useState(false);
     const watchTimerRef = useRef(null);
     const watchStartTimeRef = useRef(Date.now());
 
@@ -143,6 +145,38 @@ export default function ShortVideoFeed({ userId }) {
         }
     };
 
+    const handleWantToGo = async () => {
+        const video = venues[currentIndex];
+        setIsBookingLoading(true);
+        try {
+            const response = await axios.post('http://localhost:8000/agent/book', {
+                user_id: userId,
+                video_id: video.video_id
+            });
+            console.log("Booking Agent Response:", response.data);
+            setBookingState(response.data);
+        } catch (error) {
+            console.error("Booking failed", error);
+            alert("Failed to start booking. See console.");
+        } finally {
+            setIsBookingLoading(false);
+        }
+    };
+
+    const confirmBooking = async () => {
+        if (!bookingState) return;
+
+        try {
+            const response = await axios.post('http://localhost:8000/agent/confirm-booking', {
+                state: bookingState
+            });
+            setBookingState(response.data); // Update with confirmation
+        } catch (error) {
+            console.error("Confirmation failed", error);
+            alert("Failed to confirm booking.");
+        }
+    };
+
     if (loading) {
         return (
             <div className="h-screen flex items-center justify-center bg-black text-white">
@@ -250,8 +284,8 @@ export default function ShortVideoFeed({ userId }) {
                         <button
                             onClick={handleSave}
                             className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition ${saved
-                                    ? 'bg-green-600 text-white'
-                                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                                ? 'bg-green-600 text-white'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
                                 }`}
                         >
                             <Bookmark className="w-5 h-5" />
@@ -260,14 +294,149 @@ export default function ShortVideoFeed({ userId }) {
                         <button
                             onClick={handleShare}
                             className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition ${shared
-                                    ? 'bg-purple-600 text-white'
-                                    : 'bg-green-600 text-white hover:bg-green-700'
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-green-600 text-white hover:bg-green-700'
                                 }`}
                         >
                             <Share2 className="w-5 h-5" />
                             {shared ? '✓ Shared' : 'Share'}
                         </button>
+                        <button
+                            onClick={handleWantToGo}
+                            disabled={isBookingLoading}
+                            className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition bg-pink-600 text-white hover:bg-pink-700 disabled:opacity-50"
+                        >
+                            {isBookingLoading ? (
+                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                                <Calendar className="w-5 h-5" />
+                            )}
+                            Want to Go
+                        </button>
                     </div>
+
+                    {/* Booking Modal */}
+                    {bookingState && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                            <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in duration-200">
+                                <div className="flex justify-between items-start mb-4">
+                                    <h3 className="text-xl font-bold text-gray-900">
+                                        {bookingState.booking_confirmation?.status === 'confirmed' ? 'Booking Confirmed! 🎉' : 'Book Your Visit'}
+                                    </h3>
+                                    <button
+                                        onClick={() => setBookingState(null)}
+                                        className="p-1 hover:bg-gray-100 rounded-full"
+                                    >
+                                        <X className="w-5 h-5 text-gray-500" />
+                                    </button>
+                                </div>
+
+                                {/* Agent Logs */}
+                                {bookingState.logs && bookingState.logs.length > 0 && (
+                                    <div className="mb-4 bg-gray-900 rounded-xl p-3 font-mono text-xs text-green-400 overflow-hidden">
+                                        <div className="flex items-center gap-2 mb-2 border-b border-gray-800 pb-1">
+                                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                                            <span className="uppercase tracking-wider opacity-70">Agent Activity</span>
+                                        </div>
+                                        <div className="space-y-1">
+                                            {bookingState.logs.map((log, i) => (
+                                                <div key={i} className="opacity-90">&gt; {log}</div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {bookingState.booking_proposal && (!bookingState.booking_confirmation || !bookingState.booking_confirmation.status) && (
+                                    <div className="space-y-4">
+                                        <div className="bg-gray-50 p-4 rounded-xl space-y-3">
+                                            <div className="flex items-center gap-3 text-gray-700">
+                                                <MapPin className="w-5 h-5 text-gray-400" />
+                                                <span className="font-medium">{bookingState.booking_proposal.venue_name}</span>
+                                            </div>
+                                            <div className="flex items-center gap-3 text-gray-700">
+                                                <Users className="w-5 h-5 text-gray-400" />
+                                                <span>Party of {bookingState.booking_proposal.party_size}</span>
+                                            </div>
+                                            <div className="flex items-center gap-3 text-gray-700">
+                                                <Calendar className="w-5 h-5 text-gray-400" />
+                                                <span>{bookingState.booking_proposal.date} at {bookingState.booking_proposal.time}</span>
+                                            </div>
+                                        </div>
+
+                                        <p className="text-gray-600 text-sm">
+                                            {bookingState.booking_proposal.message}
+                                        </p>
+
+                                        <div className="flex gap-3 pt-2">
+                                            <button
+                                                onClick={confirmBooking}
+                                                className="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition flex items-center justify-center gap-2"
+                                            >
+                                                <Check className="w-5 h-5" />
+                                                Confirm Booking
+                                            </button>
+                                            <button
+                                                onClick={() => setBookingState(null)}
+                                                className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition"
+                                            >
+                                                Maybe Later
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {bookingState.booking_confirmation?.status === 'confirmed' && (
+                                    <div className="space-y-4">
+                                        <div className="bg-green-50 border border-green-100 p-4 rounded-xl text-center">
+                                            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                                <Check className="w-6 h-6 text-green-600" />
+                                            </div>
+                                            <h4 className="font-bold text-green-800 mb-1">Reservation Confirmed</h4>
+                                            <p className="text-green-700 text-sm">
+                                                Confirmation #{bookingState.booking_confirmation.confirmation_number}
+                                            </p>
+                                        </div>
+
+                                        <p className="text-gray-600 text-center text-sm">
+                                            {bookingState.booking_confirmation.message}
+                                        </p>
+
+                                        <button
+                                            onClick={() => setBookingState(null)}
+                                            className="w-full bg-gray-900 text-white py-3 rounded-xl font-bold hover:bg-gray-800 transition"
+                                        >
+                                            Done
+                                        </button>
+                                    </div>
+                                )}
+
+                                {bookingState.availability_check?.status === 'unavailable' && !bookingState.booking_proposal && (
+                                    <div className="space-y-4">
+                                        <div className="bg-orange-50 border border-orange-100 p-4 rounded-xl">
+                                            <p className="text-orange-800 text-sm">
+                                                {bookingState.availability_check.message}
+                                            </p>
+                                        </div>
+                                        {/* Alternatives could go here */}
+                                        <button
+                                            onClick={() => setBookingState(null)}
+                                            className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-bold hover:bg-gray-200 transition"
+                                        >
+                                            Close
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Debug Fallback */}
+                                {bookingState && !bookingState.logs && !bookingState.booking_proposal && (
+                                    <div className="p-4 bg-red-50 text-red-600 text-xs font-mono overflow-auto">
+                                        <p className="font-bold mb-2">Debug: State received but missing data</p>
+                                        <pre>{JSON.stringify(bookingState, null, 2)}</pre>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Algorithm Explanation */}
                     <AlgorithmBreakdown explanation={currentVenue.explanation} finalScore={currentVenue.final_score} />

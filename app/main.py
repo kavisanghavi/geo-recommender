@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from app.worker import process_interaction
 from app.graph import get_db_driver
 from app.vector import get_vector_client
-# from app.agent import booking_agent_workflow # Commented out until fully implemented
+from app.agent import booking_agent, confirm_booking
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -1020,9 +1020,148 @@ async def agent_action(action: AgentAction):
     }
     
     result = agent.invoke(initial_state)
-    
-    return result
+@app.get("/user/{user_id}/bookings")
+async def get_user_bookings(user_id: str):
+    """
+    Get all bookings for a user.
+    """
+    from app.graph import driver
+
+    try:
+        with driver.session() as session:
+            bookings_result = session.run("""
+                MATCH (u:User {id: $user_id})-[b:BOOKED]->(venue:Venue)
+                OPTIONAL MATCH (u)-[w:WATCHED {booking_id: b.booking_id}]->(video:Video)
+                RETURN b.booking_id as booking_id,
+                       b.party_size as party_size,
+                       b.booking_datetime as booking_datetime,
+                       b.occasion as occasion,
+                       b.special_requests as special_requests,
+                       b.status as status,
+                       b.created_at as created_at,
+                       venue.id as venue_id,
+                       venue.name as venue_name,
+                       venue.category as venue_category,
+                       venue.neighborhood as neighborhood,
+                       video.id as video_id,
+                       video.title as video_title
+                ORDER BY b.booking_datetime DESC
+            """, user_id=user_id)
+
+            bookings = []
+            for record in bookings_result:
+                booking = {
+                    "booking_id": record["booking_id"],
+                    "confirmation_number": record["booking_id"][-8:].upper(),
+                    "party_size": record["party_size"],
+                    "booking_datetime": record["booking_datetime"].isoformat() if record["booking_datetime"] else None,
+                    "occasion": record["occasion"],
+                    "special_requests": record["special_requests"],
+                    "status": record["status"],
+                    "created_at": record["created_at"].isoformat() if record["created_at"] else None,
+                    "venue": {
+                        "id": record["venue_id"],
+                        "name": record["venue_name"],
+                        "category": record["venue_category"],
+                        "neighborhood": record.get("neighborhood")
+                    },
+                    "video": {
+                        "id": record["video_id"],
+                        "title": record["video_title"]
+                    } if record["video_id"] else None
+                }
+                bookings.append(booking)
+
+            return {"bookings": bookings}
+
+    except Exception as e:
+        print(f"Failed to fetch bookings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/")
 async def root():
     return {"message": "Social-First Recommendation Engine API"}
+
+class BookingRequest(BaseModel):
+    user_id: str
+    video_id: str
+
+class ConfirmBookingRequest(BaseModel):
+    state: dict
+
+@app.post("/agent/book")
+async def initiate_booking(request: BookingRequest):
+    """Trigger booking agent workflow"""
+    from app.graph import driver
+    
+    # Get video and venue info
+    try:
+        with driver.session() as session:
+            result = session.run("""
+                MATCH (v:Video {id: $video_id})<-[:POSTED]-(venue:Venue)
+                RETURN v.title as title, 
+                       v.description as description, 
+                       v.video_type as video_type, 
+                       v.categories as categories,
+                       venue.id as venue_id,
+                       venue.name as venue_name
+            """, video_id=request.video_id).single()
+            
+            if not result:
+                raise HTTPException(status_code=404, detail="Video or venue not found")
+                
+            venue_info = {
+                "venue_id": result["venue_id"],
+                "venue_name": result["venue_name"],
+                "title": result["title"],
+                "description": result["description"],
+                "video_type": result["video_type"],
+                "categories": result["categories"] or []
+            }
+
+        # Run agent
+        # Initialize state
+        initial_state = {
+            "video_id": request.video_id,
+            "user_id": request.user_id,
+            "venue_info": venue_info,
+            "booking_intent": None,
+            "availability_check": None,
+            "booking_proposal": None,
+            "booking_confirmation": None,
+            "step": "start",
+            "logs": ["🚀 Starting booking agent..."]
+        }
+        
+        # Invoke agent
+        print(f"DEBUG: Invoking agent with state: {initial_state}")
+        final_state = booking_agent.invoke(initial_state)
+        print(f"DEBUG: Agent final state keys: {final_state.keys()}")
+        print(f"DEBUG: Logs present: {'logs' in final_state} (Count: {len(final_state.get('logs', []))})")
+        if "booking_proposal" in final_state:
+            print(f"DEBUG: Final proposal: {final_state['booking_proposal']}")
+        else:
+            print("DEBUG: No booking_proposal in final state!")
+
+        return final_state
+
+    except Exception as e:
+        print(f"Booking agent error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/agent/confirm-booking")
+async def confirm_booking_action(request: ConfirmBookingRequest):
+    """User confirmed the booking"""
+    try:
+        # Continue agent workflow from confirmation step
+        # Since our graph ends at confirm_booking, we can just call the function directly
+        # or re-invoke the graph if we had persistence. 
+        # For this POC, we'll just call the confirm_booking node function directly
+        # as the state is passed back from frontend.
+        
+        result = confirm_booking(request.state)
+        return result
+    except Exception as e:
+        print(f"Confirmation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

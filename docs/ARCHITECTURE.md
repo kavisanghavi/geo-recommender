@@ -438,13 +438,125 @@ def log_video_engagement(user_id, video_id, action, watch_time):
 
 ---
 
-### 5. Experimental Features (`app/agent.py`)
+### 5. Booking Agent (`app/agent.py`)
 
-**Technology**: LangGraph + OpenAI (Experimental)
+**Technology**: LangGraph + OpenAI GPT-4o-mini
 
-**Status**: Proof of concept for AI-powered booking agent
+**Status**: Proof of Concept (Experimental)
 
-**Note**: This feature is experimental and not actively used in the current implementation. The primary focus is on the video recommendation system.
+**Purpose**: Automate booking flow from video discovery to confirmed reservations using AI-powered workflow orchestration
+
+#### Architecture
+
+**State Management**:
+```python
+class BookingState(TypedDict):
+    video_id: str                              # Source video
+    user_id: str                               # Requesting user
+    venue_info: Dict[str, Any]                 # Video & venue metadata
+    booking_intent: Optional[Dict[str, Any]]   # Extracted parameters
+    availability_check: Optional[Dict[str, Any]] # Availability result
+    booking_proposal: Optional[Dict[str, Any]]   # Final proposal
+    booking_confirmation: Optional[Dict[str, Any]] # Confirmation
+    step: str                                  # Current workflow step
+    logs: List[str]                            # Execution trace for UI
+```
+
+**Workflow Graph**:
+```python
+workflow = StateGraph(BookingState)
+workflow.add_node("extract_intent", extract_booking_intent)
+workflow.add_node("check_availability", check_availability)
+workflow.add_node("create_proposal", create_booking_proposal)
+workflow.add_node("confirm_booking", confirm_booking)
+
+workflow.set_entry_point("extract_intent")
+workflow.add_edge("extract_intent", "check_availability")
+workflow.add_edge("check_availability", "create_proposal")
+workflow.add_edge("create_proposal", END)  # User confirms manually
+```
+
+#### Key Functions
+
+**`extract_booking_intent(state)`**:
+- Uses GPT-4o-mini to analyze video context (title, description, type, categories)
+- Suggests party size, date/time, occasion based on video content
+- Falls back to rule-based logic if LLM unavailable
+- Example: Event video → evening booking, cafe video → morning booking
+
+**`check_availability(state)`**:
+- Mock implementation with realistic scoring (prime time = harder to book)
+- Generates 3 alternative times when unavailable
+- Production: Would integrate with OpenTable/Resy/Toast APIs
+
+**`create_booking_proposal(state)`**:
+- Formats user-friendly booking details
+- Handles both available and unavailable scenarios
+- Returns structured proposal for UI display
+
+**`confirm_booking(state)`**:
+- Stores booking in Neo4j as `BOOKED` relationship
+- Creates `WATCHED` relationship linking booking to source video
+- Returns confirmation with booking ID
+
+#### API Endpoints
+
+**`POST /agent/book`**:
+```python
+@app.post("/agent/book")
+async def book_agent(request: BookingRequest):
+    # Get video and venue info from Neo4j
+    venue_info = get_venue_info(video_id)
+    
+    # Initialize agent state
+    initial_state = {
+        "video_id": video_id,
+        "user_id": user_id,
+        "venue_info": venue_info,
+        "logs": ["🚀 Starting booking agent..."]
+    }
+    
+    # Run workflow
+    final_state = booking_agent.invoke(initial_state)
+    
+    return final_state  # Includes proposal, intent, logs
+```
+
+**Neo4j Booking Storage**:
+```cypher
+MATCH (u:User {id: $user_id})
+MATCH (v:Venue {id: $venue_id})
+MATCH (video:Video {id: $video_id})
+CREATE (u)-[b:BOOKED {
+    booking_id: $booking_id,
+    party_size: $party_size,
+    booking_datetime: datetime($datetime_iso),
+    occasion: $occasion,
+    status: 'confirmed',
+    created_at: datetime(),
+    video_source: $video_id
+}]->(v)
+CREATE (u)-[:WATCHED {
+    action: 'booked',
+    booking_id: $booking_id,
+    timestamp: datetime()
+}]->(video)
+```
+
+#### Current Limitations
+- **Mock Availability**: Random simulation, not real API
+- **No Payment**: No deposit/payment processing
+- **No Notifications**: No email/SMS confirmations
+- **No Cancellation**: Users can't modify/cancel bookings
+
+#### Future Enhancements
+See [BOOKING_AGENT.md](./BOOKING_AGENT.md) for detailed roadmap:
+- Real booking platform integrations (OpenTable, Resy, Toast)
+- Payment processing (Stripe)
+- Confirmation delivery (email, SMS, calendar)
+- Multi-turn conversations for refinement
+- Group booking coordination
+- Preference learning and smart rescheduling
 
 ---
 
@@ -724,6 +836,7 @@ await axios.post('http://localhost:8000/engage-video', {
 - [README.md](../README.md) - Setup instructions and project overview
 - [GOALS.md](./GOALS.md) - High-level objectives and roadmap
 - [ALGORITHM_EXPLAINED.md](./ALGORITHM_EXPLAINED.md) - Detailed algorithm logic
+- [BOOKING_AGENT.md](./BOOKING_AGENT.md) - Booking agent POC documentation
 - [DEMO_GUIDE.md](./DEMO_GUIDE.md) - Demo walkthrough instructions
 - [TESTING_GUIDE.md](./TESTING_GUIDE.md) - Testing strategies
 

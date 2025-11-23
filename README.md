@@ -34,6 +34,7 @@ GeoSocial is a local business discovery platform that works like popular short-v
 - **Grid View**: Browse multiple recommendations at once
 - **Algorithm Breakdown**: Transparent scoring shows Taste Match, Friend Activity, Proximity, and Trending
 - **Save & Share**: Bookmark videos and share with friends
+- **Booking Agent** (POC): AI-powered "Want to Go" button that extracts intent and creates booking proposals
 - **User Profiles**: View saved places, watch history, friends, and interests
 
 ### 👥 Social Features
@@ -247,6 +248,7 @@ geo-recommender/
 ├── docs/                  # Documentation
 │   ├── ALGORITHM_EXPLAINED.md
 │   ├── ARCHITECTURE.md
+│   ├── BOOKING_AGENT.md   # Booking agent POC documentation
 │   ├── DEMO_GUIDE.md
 │   ├── TESTING_GUIDE.md
 │   └── GOALS.md
@@ -262,6 +264,10 @@ geo-recommender/
 **Video Feed:**
 - `GET /feed-video?user_id={id}&lat={lat}&lon={lon}&radius_km={r}&limit={n}` - Personalized video feed
 - `POST /engage-video` - Log video engagement (view, save, share, skip)
+
+**Booking Agent (Experimental):**
+- `POST /agent/book` - Initiate AI-powered booking workflow
+- `POST /agent/confirm-booking` - Confirm booking and store in Neo4j
 
 **Users:**
 - `GET /user/{user_id}` - User profile with watch history
@@ -390,6 +396,7 @@ See [GOALS.md](docs/GOALS.md) for detailed roadmap.
 - [ ] Group recommendations (find a place for you + friends)
 - [ ] Negative feedback (downrank content you don't like)
 - [ ] Weather-aware suggestions (rainy → indoor venues)
+- [ ] **Booking Agent**: Real API integrations (OpenTable, Resy) - see [BOOKING_AGENT.md](docs/BOOKING_AGENT.md)
 
 **Medium Priority:**
 - [ ] Mood-based recommendations (adventurous, romantic, casual)
