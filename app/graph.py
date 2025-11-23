@@ -12,9 +12,126 @@ def get_db_driver():
 def close_db_driver():
     driver.close()
 
+def get_social_scores_for_videos(video_ids: list[str], user_id: str) -> dict[str, dict]:
+    """
+    Query Neo4j to count friends engaged with specific videos.
+    Video-level social proof with venue-level context.
+    Returns detailed breakdown for algorithm explainability.
+    """
+    query = """
+    UNWIND $video_ids AS video_id
+    MATCH (u:User {id: $user_id})
+    MATCH (vid:Video {id: video_id})
+    MATCH (vid)<-[:POSTED]-(venue:Venue)
+
+    // Friends who watched THIS specific video (>=10s)
+    OPTIONAL MATCH (u)-[:FRIENDS_WITH]-(friend)-[r:WATCHED]->(vid)
+    WHERE r.watch_time >= 10 OR r.action IN ['saved', 'shared']
+    WITH u, vid, video_id, venue, collect(DISTINCT {
+        name: friend.name,
+        action: r.action,
+        watch_time: r.watch_time,
+        weight: r.weight
+    }) as video_engagements
+
+    // Friends who engaged with ANY video from this venue (venue-level context)
+    OPTIONAL MATCH (u)-[:FRIENDS_WITH]-(friend)-[r2:WATCHED]->(other_vid:Video)<-[:POSTED]-(venue)
+    WHERE other_vid.id <> video_id AND (r2.watch_time >= 10 OR r2.action IN ['saved', 'shared'])
+    WITH video_id, video_engagements, venue.id as venue_id, collect(DISTINCT friend.name) as venue_level_friends
+
+    // Mutual friends (2nd degree) who engaged with this video
+    OPTIONAL MATCH (u:User {id: $user_id})-[:FRIENDS_WITH]-(friend)-[:FRIENDS_WITH]-(mutual)-[r3:WATCHED]->(vid:Video {id: video_id})
+    WHERE NOT (u)-[:FRIENDS_WITH]-(mutual) AND mutual.id <> u.id AND (r3.watch_time >= 10 OR r3.action IN ['saved', 'shared'])
+    WITH video_id, video_engagements, venue_id, venue_level_friends, collect(DISTINCT mutual.id) as mutual_ids
+
+    RETURN video_id, video_engagements, venue_id, venue_level_friends, mutual_ids
+    """
+
+    social_data = {}
+
+    with driver.session() as session:
+        result = session.run(query, video_ids=video_ids, user_id=user_id)
+        for record in result:
+            video_id = record["video_id"]
+            video_engagements = record["video_engagements"]
+            venue_id = record["venue_id"]
+            venue_level_friends = record["venue_level_friends"]
+            mutual_ids = record["mutual_ids"]
+
+            score = 0
+            contributors = []
+
+            # Video-specific engagement scoring (higher weight)
+            for engagement in video_engagements:
+                if engagement['name']:
+                    if engagement['action'] == 'shared':
+                        boost = 15  # Shared THIS video
+                        score += boost
+                        contributors.append({
+                            "friend": engagement['name'],
+                            "action": "shared",
+                            "boost": boost,
+                            "video_specific": True
+                        })
+                    elif engagement['action'] == 'saved':
+                        boost = 8  # Saved THIS video
+                        score += boost
+                        contributors.append({
+                            "friend": engagement['name'],
+                            "action": "saved",
+                            "boost": boost,
+                            "video_specific": True
+                        })
+                    elif engagement['action'] == 'viewed':
+                        watch_time = engagement.get('watch_time', 0)
+                        if watch_time >= 10:
+                            boost = 5  # Watched THIS video >=10s
+                            score += boost
+                            contributors.append({
+                                "friend": engagement['name'],
+                                "action": "viewed",
+                                "boost": boost,
+                                "video_specific": True
+                            })
+
+            # Venue-level context (friends who engaged with OTHER videos from this venue)
+            # This provides broader social proof with lower weight
+            venue_friend_count = len(venue_level_friends) if venue_level_friends else 0
+            if venue_friend_count > 0:
+                boost = min(venue_friend_count * 2, 10)  # Cap at +10
+                score += boost
+                contributors.append({
+                    "venue_friends": venue_friend_count,
+                    "action": "love_venue",
+                    "boost": boost,
+                    "video_specific": False
+                })
+
+            # Mutual friends boost
+            mutual_count = len(mutual_ids) if mutual_ids else 0
+            if mutual_count > 0:
+                boost = mutual_count * 2
+                score += boost
+                contributors.append({
+                    "mutuals": mutual_count,
+                    "action": "interested",
+                    "boost": boost,
+                    "video_specific": False
+                })
+
+            social_data[video_id] = {
+                "social_score": score,
+                "contributors": contributors[:6],  # Top 6 contributors
+                "friend_activity": _format_friend_activity_video(contributors),
+                "venue_id": venue_id
+            }
+
+    return social_data
+
 def get_social_scores(venue_ids: list[str], user_id: str) -> dict[str, dict]:
     """
-    Query Neo4j to count friends and mutuals engaged with venues.
+    LEGACY: Query Neo4j to count friends and mutuals engaged with venues.
+    Kept for backward compatibility with old seeder.
     Returns detailed breakdown for algorithm explainability.
     """
     query = """
@@ -121,8 +238,28 @@ def get_social_scores(venue_ids: list[str], user_id: str) -> dict[str, dict]:
 
     return social_data
 
+def _format_friend_activity_video(contributors: list) -> str:
+    """Format video-level contributor list into human-readable string"""
+    if not contributors:
+        return ""
+
+    messages = []
+    for c in contributors[:4]:  # Top 4
+        if "friend" in c:
+            if c.get("video_specific"):
+                action_verb = "shared this video" if c["action"] == "shared" else "saved this video" if c["action"] == "saved" else "watched this video"
+            else:
+                action_verb = "engaged with this"
+            messages.append(f"{c['friend']} {action_verb}")
+        elif "venue_friends" in c:
+            messages.append(f"{c['venue_friends']} friends love this place")
+        elif "mutuals" in c:
+            messages.append(f"{c['mutuals']} mutual friends interested")
+
+    return ", ".join(messages)
+
 def _format_friend_activity(contributors: list) -> str:
-    """Format contributor list into human-readable string"""
+    """Format contributor list into human-readable string (legacy venue-based)"""
     if not contributors:
         return ""
 
@@ -149,9 +286,33 @@ def log_interaction_to_graph(user_id: str, venue_id: str, interaction_type: str,
     """Legacy function for backwards compatibility"""
     log_engagement(user_id, venue_id, interaction_type, 0, weight)
 
+def log_video_engagement(user_id: str, video_id: str, action_type: str, watch_time: int, weight: float):
+    """
+    Log user engagement with video-level tracking.
+    action_type: 'viewed', 'skipped', 'saved', 'shared'
+    """
+    query = """
+    MATCH (u:User {id: $user_id})
+    MATCH (vid:Video {id: $video_id})
+    MERGE (u)-[r:WATCHED]->(vid)
+    SET r.action = $action,
+        r.watch_time = $watch_time,
+        r.weight = $weight,
+        r.timestamp = datetime()
+    """
+    with driver.session() as session:
+        session.run(
+            query,
+            user_id=user_id,
+            video_id=video_id,
+            action=action_type,
+            watch_time=watch_time,
+            weight=weight
+        )
+
 def log_engagement(user_id: str, venue_id: str, action_type: str, watch_time: int, weight: float):
     """
-    Log user engagement with watch_time tracking.
+    LEGACY: Log user engagement with watch_time tracking (venue-based).
     action_type: 'viewed', 'skipped', 'saved', 'shared'
     """
     query = """
@@ -225,9 +386,56 @@ def get_trending_scores(venue_ids: list[str], hours: int = 24) -> dict[str, dict
 
     return trending_data
 
+def get_user_video_history(user_id: str, limit: int = 50) -> list[dict]:
+    """
+    Get user's video watch history with engagement details
+    """
+    query = """
+    MATCH (u:User {id: $user_id})-[r:WATCHED]->(vid:Video)
+    MATCH (vid)<-[:POSTED]-(venue:Venue)
+    RETURN vid.id as video_id,
+           vid.title as video_title,
+           venue.id as venue_id,
+           venue.name as venue_name,
+           r.action as action,
+           r.watch_time as watch_time,
+           r.timestamp as timestamp
+    ORDER BY r.timestamp DESC
+    LIMIT $limit
+    """
+
+    with driver.session() as session:
+        result = session.run(query, user_id=user_id, limit=limit)
+        return [dict(r) for r in result]
+
+def get_seen_videos(user_id: str) -> list[str]:
+    """
+    Get list of video IDs that user has already watched (any engagement)
+    """
+    query = """
+    MATCH (u:User {id: $user_id})-[r:WATCHED]->(vid:Video)
+    RETURN vid.id as video_id
+    """
+
+    with driver.session() as session:
+        result = session.run(query, user_id=user_id)
+        return [record["video_id"] for record in result]
+
+def clear_user_video_activity(user_id: str):
+    """
+    Clear all video engagement for a user (for testing)
+    """
+    query = """
+    MATCH (u:User {id: $user_id})-[r:WATCHED]->()
+    DELETE r
+    """
+
+    with driver.session() as session:
+        session.run(query, user_id=user_id)
+
 def get_user_watch_history(user_id: str, limit: int = 50) -> list[dict]:
     """
-    Get user's watch history with engagement details
+    LEGACY: Get user's watch history with engagement details (venue-based)
     """
     query = """
     MATCH (u:User {id: $user_id})-[r:ENGAGED_WITH]->(v:Venue)

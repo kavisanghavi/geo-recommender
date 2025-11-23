@@ -74,13 +74,20 @@ class ClearActivityRequest(BaseModel):
 async def clear_user_activity(req: ClearActivityRequest):
     """
     Clear all engagement/activity for a specific user.
+    Supports both video-level (WATCHED) and legacy venue-level (ENGAGED_WITH).
     Useful for testing how watch time affects recommendations.
     """
-    from app.graph import driver
+    from app.graph import driver, clear_user_video_activity
 
     try:
         with driver.session() as session:
-            # Remove all ENGAGED_WITH relationships for this user
+            # Remove all WATCHED relationships (video-level)
+            session.run("""
+                MATCH (u:User {id: $user_id})-[r:WATCHED]->()
+                DELETE r
+            """, user_id=req.user_id)
+
+            # Remove all ENGAGED_WITH relationships (legacy venue-level)
             session.run("""
                 MATCH (u:User {id: $user_id})-[r:ENGAGED_WITH]->()
                 DELETE r
@@ -134,9 +141,9 @@ async def debug_create_user(request: CreateUserRequest = Body(...)):
 @app.get("/user/{user_id}")
 async def get_user_profile(user_id: str):
     """
-    Enhanced user profile with watch history and engagement details.
+    Enhanced user profile with VIDEO watch history and engagement details.
     """
-    from app.graph import driver, get_user_watch_history
+    from app.graph import driver, get_user_video_history
     from app.vector import client
 
     try:
@@ -157,48 +164,63 @@ async def get_user_profile(user_id: str):
                 "archetype": user_result.get("archetype", "Unknown")
             }
 
-            # Get Friends
+            # Get Friends (use DISTINCT to avoid duplicates from bidirectional relationships)
             friends_result = session.run("""
                 MATCH (u:User {id: $id})-[:FRIENDS_WITH]-(f:User)
-                RETURN f.id as id, f.name as name, f.interests as interests
+                RETURN DISTINCT f.id as id, f.name as name, f.interests as interests
                 ORDER BY f.name
             """, id=user_id)
             friends = [{"id": r["id"], "name": r["name"], "interests": r["interests"]} for r in friends_result]
 
-            # Get Watch History (using new ENGAGED_WITH relationships)
-            watch_history = get_user_watch_history(user_id, limit=50)
+            # Get VIDEO Watch History (using new WATCHED relationships)
+            video_history = get_user_video_history(user_id, limit=50)
 
-            # Enrich watch history with venue details
-            if watch_history:
-                point_ids = []
-                venue_id_to_point_id = {}
+            # Enrich video history with video details from Qdrant
+            if video_history:
+                video_ids = []
+                video_id_to_point_id = {}
 
-                for item in watch_history:
+                for item in video_history:
                     try:
-                        pid = int(item["venue_id"].split("_")[1])
-                        point_ids.append(pid)
-                        venue_id_to_point_id[item["venue_id"]] = pid
+                        # Extract numeric ID from video_id (e.g., "video_123" -> 123)
+                        vid = item["video_id"]
+                        pid = int(vid.split("_")[1])
+                        video_ids.append(pid)
+                        video_id_to_point_id[vid] = pid
                     except:
                         pass
 
-                if point_ids:
+                if video_ids:
+                    # Retrieve video data from Qdrant
                     points = client.retrieve(
-                        collection_name="venues",
-                        ids=point_ids,
+                        collection_name="videos",
+                        ids=video_ids,
                         with_payload=True
                     )
 
                     point_map = {p.id: p.payload for p in points}
 
-                    for item in watch_history:
-                        pid = venue_id_to_point_id.get(item["venue_id"])
+                    for item in video_history:
+                        pid = video_id_to_point_id.get(item["video_id"])
                         if pid is not None and pid in point_map:
-                            item["venue"] = point_map[pid]
+                            video_data = point_map[pid]
+                            item["video"] = {
+                                "video_id": video_data.get("video_id"),
+                                "title": video_data.get("title"),
+                                "description": video_data.get("description"),
+                                "video_type": video_data.get("video_type"),
+                                "categories": video_data.get("categories"),
+                                "gradient": video_data.get("gradient"),
+                                "venue_id": video_data.get("venue_id"),
+                                "venue_name": video_data.get("venue_name"),
+                                "neighborhood": video_data.get("neighborhood"),
+                                "location": video_data.get("location")
+                            }
 
             return {
                 "user": user_data,
                 "friends": friends,
-                "watch_history": watch_history
+                "watch_history": video_history  # Now contains video data
             }
 
     except Exception as e:
@@ -322,11 +344,17 @@ async def get_map_data():
         print(f"Error fetching venues: {e}")
         venues = []
         
-    # Fetch Users from Neo4j
+    # Fetch Users from Neo4j (filter out null names)
     users = []
     try:
         with driver.session() as session:
-            result = session.run("MATCH (u:User) RETURN u.id as id, u.name as name LIMIT 100")
+            result = session.run("""
+                MATCH (u:User)
+                WHERE u.name IS NOT NULL
+                RETURN u.id as id, u.name as name
+                ORDER BY u.name
+                LIMIT 100
+            """)
             users = [{"id": r["id"], "name": r["name"]} for r in result]
     except Exception as e:
         print(f"Error fetching users: {e}")
@@ -344,6 +372,50 @@ async def ingest_interaction(interaction: Interaction):
     )
     return {"status": "queued"}
 
+class VideoEngagementRequest(BaseModel):
+    user_id: str
+    video_id: str
+    watch_time_seconds: int
+    action: str  # 'view', 'skip', 'save', 'share'
+
+@app.post("/engage-video")
+async def log_video_engagement_endpoint(req: VideoEngagementRequest):
+    """
+    Log user engagement with video-level tracking.
+    Primary endpoint for TikTok-style video interactions.
+    """
+    from app.graph import log_video_engagement
+
+    # Calculate weight based on action and watch time
+    weight = 0.0
+    action_type = req.action
+
+    if req.action == "skip" or req.watch_time_seconds < 3:
+        weight = -0.5
+        action_type = "skipped"
+    elif req.action == "share":
+        weight = 3.0
+        action_type = "shared"
+    elif req.action == "save":
+        weight = 1.5
+        action_type = "saved"
+    else:  # view
+        # Weight based on watch time
+        if req.watch_time_seconds >= 30:
+            weight = 2.0  # Full view
+        elif req.watch_time_seconds >= 10:
+            weight = 1.0  # Engaged view
+        elif req.watch_time_seconds >= 3:
+            weight = 0.3  # Brief view
+        action_type = "viewed"
+
+    # Log to graph
+    try:
+        log_video_engagement(req.user_id, req.video_id, action_type, req.watch_time_seconds, weight)
+        return {"status": "logged", "action": action_type, "weight": weight}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 class EngagementRequest(BaseModel):
     user_id: str
     venue_id: str
@@ -353,7 +425,7 @@ class EngagementRequest(BaseModel):
 @app.post("/engage")
 async def log_engagement_endpoint(req: EngagementRequest):
     """
-    Log user engagement with watch time tracking.
+    LEGACY: Log user engagement with watch time tracking.
     This is the primary endpoint for TikTok-style interactions.
     """
     from app.graph import log_engagement
@@ -424,10 +496,246 @@ async def social_connect(connection: Connection):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/feed-video")
+async def get_video_feed(user_id: str, lat: float, lon: float, radius_km: float = 2.0, limit: int = 20):
+    """
+    Video-centric feed with full algorithm transparency.
+    Returns videos (not venues) ranked by multi-factor algorithm.
+    Filters out seen videos and deduplicates (max 1 video per venue per batch).
+    """
+    from app.vector import get_user_vector
+    from app.graph import get_social_scores_for_videos, get_seen_videos
+    from qdrant_client import models as qmodels
+    import math
+
+    # 1. Get User Vector
+    user_vector = get_user_vector(user_id)
+
+    # 2. Get seen videos to filter out
+    seen_video_ids = get_seen_videos(user_id)
+    seen_video_ids_set = set(seen_video_ids)
+
+    # 3. Search for video candidates (fetch more than needed for filtering)
+    from app.vector import client
+    from qdrant_client.models import PointIdsList, Filter, FieldCondition, MatchValue
+
+    search_results = client.query_points(
+        collection_name="videos",
+        query=user_vector,
+        limit=limit * 4,  # Fetch extra to account for seen videos and deduplication
+        with_payload=True
+    ).points
+
+    # 4. Filter out seen videos and build candidates
+    candidates = []
+    candidate_video_ids = set()
+
+    for result in search_results:
+        video_id = result.payload.get("video_id")
+        if video_id not in seen_video_ids_set:
+            # Check proximity
+            venue_lat = result.payload.get("location", {}).get("lat", lat)
+            venue_lon = result.payload.get("location", {}).get("lon", lon)
+            distance_km = haversine_distance(lat, lon, venue_lat, venue_lon)
+
+            if distance_km <= radius_km:
+                candidates.append({
+                    "video_id": video_id,
+                    "venue_id": result.payload.get("venue_id"),
+                    "score": result.score,
+                    "payload": result.payload,
+                    "distance_km": distance_km
+                })
+                candidate_video_ids.add(video_id)
+
+    # 4b. Inject friend-engaged videos (social proof boost)
+    # Query for videos that friends have engaged with but aren't in candidates yet
+    from app.graph import driver
+    friend_video_query = """
+    MATCH (u:User {id: $user_id})-[:FRIENDS_WITH]-(friend)-[r:WATCHED]->(vid:Video)
+    WHERE r.watch_time >= 10 OR r.action IN ['saved', 'shared']
+    WITH vid, MAX(r.watch_time) as max_watch_time
+    RETURN vid.id as video_id
+    ORDER BY max_watch_time DESC
+    LIMIT 50
+    """
+
+    with driver.session() as session:
+        result = session.run(friend_video_query, user_id=user_id)
+        all_friend_videos = [record["video_id"] for record in result]
+        friend_video_ids = [vid for vid in all_friend_videos if vid not in candidate_video_ids and vid not in seen_video_ids_set]
+
+    # Fetch friend-engaged videos from Qdrant and add to candidates
+    if friend_video_ids:
+        try:
+            point_ids = [int(vid.split("_")[1]) for vid in friend_video_ids]
+            friend_videos = client.retrieve(
+                collection_name="videos",
+                ids=point_ids,
+                with_payload=True
+            )
+
+            for point in friend_videos:
+                video_id = point.payload.get("video_id")
+                if video_id and video_id not in candidate_video_ids:
+                    venue_lat = point.payload.get("location", {}).get("lat", lat)
+                    venue_lon = point.payload.get("location", {}).get("lon", lon)
+                    distance_km = haversine_distance(lat, lon, venue_lat, venue_lon)
+
+                    if distance_km <= radius_km * 1.5:  # Slightly larger radius for friend content
+                        candidates.append({
+                            "video_id": video_id,
+                            "venue_id": point.payload.get("venue_id"),
+                            "score": 0.5,  # Default taste score for friend-injected content
+                            "payload": point.payload,
+                            "distance_km": distance_km
+                        })
+                        candidate_video_ids.add(video_id)
+        except Exception as e:
+            print(f"Failed to inject friend videos: {e}")
+
+    if not candidates:
+        return {"feed": []}
+
+    # 5. Get video IDs and social scores
+    video_ids = [c["video_id"] for c in candidates]
+    social_scores = get_social_scores_for_videos(video_ids, user_id)
+
+    # 6. Calculate freshness/trending scores
+    def calculate_video_freshness(created_at_str: str) -> float:
+        """Calculate freshness score based on video age"""
+        from datetime import datetime
+        try:
+            created_at = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+            age_days = (datetime.now(created_at.tzinfo) - created_at).days
+            # Newer = higher score (exponential decay)
+            if age_days < 2:
+                return 1.0  # Brand new
+            elif age_days < 7:
+                return 0.7
+            elif age_days < 14:
+                return 0.5
+            elif age_days < 30:
+                return 0.3
+            else:
+                return 0.1
+        except:
+            return 0.5
+
+    # 7. Multi-factor ranking
+    feed = []
+    for candidate in candidates:
+        video_id = candidate["video_id"]
+        venue_id = candidate["venue_id"]
+        payload = candidate["payload"]
+        distance_km = candidate["distance_km"]
+
+        # Taste match (vector similarity)
+        taste_score = candidate["score"]
+
+        # Social proof (video-specific + venue-level context)
+        social_data = social_scores.get(video_id, {"social_score": 0, "contributors": [], "friend_activity": ""})
+        social_raw = social_data["social_score"]
+        social_norm = min(social_raw / 50.0, 1.0)
+
+        # Proximity
+        proximity_score = max(0, 1.0 - (distance_km / (radius_km * 2)))
+
+        # Freshness/Trending
+        created_at = payload.get("created_at", "")
+        freshness_score = calculate_video_freshness(created_at)
+
+        # Final weighted score
+        final_score = (
+            taste_score * 0.30 +
+            social_norm * 0.40 +
+            proximity_score * 0.20 +
+            freshness_score * 0.10
+        )
+
+        # Build explanation
+        explanation = {
+            "taste_match": {
+                "score": round(taste_score, 2),
+                "reason": f"Matches your interests: {', '.join(payload.get('categories', [])[:3])}"
+            },
+            "social_proof": {
+                "score": round(social_norm, 2),
+                "raw_score": social_raw,
+                "contributors": social_data.get("contributors", []),
+                "reason": social_data.get("friend_activity", "No friend activity yet")
+            },
+            "proximity": {
+                "score": round(proximity_score, 2),
+                "distance_km": round(distance_km, 2),
+                "reason": f"{round(distance_km, 1)}km away (~{int(distance_km * 12)} min walk)"
+            },
+            "trending": {
+                "score": round(freshness_score, 2),
+                "reason": f"Posted {payload.get('created_at', 'recently')[:10]}"
+            }
+        }
+
+        feed.append({
+            "video_id": video_id,
+            "venue_id": venue_id,
+            "name": payload.get("venue_name", "Unknown Venue"),
+            "title": payload.get("title", ""),
+            "description": payload.get("description", ""),
+            "video_type": payload.get("video_type", ""),
+            "categories": payload.get("categories", []),
+            "neighborhood": payload.get("neighborhood", ""),
+            "price_tier": payload.get("price_tier", 2),
+            "gradient": payload.get("gradient", "from-purple-500 to-pink-500"),
+            "location": payload.get("location", {}),
+            "final_score": round(final_score, 3),
+            "explanation": explanation
+        })
+
+    # 8. Sort by final score
+    feed.sort(key=lambda x: x["final_score"], reverse=True)
+
+
+    # 9. Deduplication: Max 1 video per venue, prioritizing friend-engaged videos
+    venue_best_video = {}
+
+    # First pass: For each venue, keep the video with highest social proof (friend engagement)
+    for item in feed:
+        venue_id = item["venue_id"]
+        social_raw = item["explanation"]["social_proof"]["raw_score"]
+
+        if venue_id not in venue_best_video:
+            venue_best_video[venue_id] = item
+        else:
+            # If this video has more friend engagement, replace the current best
+            current_social = venue_best_video[venue_id]["explanation"]["social_proof"]["raw_score"]
+            if social_raw > current_social:
+                venue_best_video[venue_id] = item
+            # If equal social proof, keep the one with higher final score
+            elif social_raw == current_social and item["final_score"] > venue_best_video[venue_id]["final_score"]:
+                venue_best_video[venue_id] = item
+
+    # Second pass: Build deduplicated feed from best videos per venue, sorted by final score
+    deduped_feed = list(venue_best_video.values())
+    deduped_feed.sort(key=lambda x: x["final_score"], reverse=True)
+    deduped_feed = deduped_feed[:limit]
+
+    return {"feed": deduped_feed}
+
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """Calculate distance in km between two lat/lon points"""
+    import math
+    R = 6371  # Earth's radius in km
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a))
+    return R * c
+
 @app.get("/feed")
 async def get_feed(user_id: str, lat: float, lon: float, radius_km: float = 2.0, limit: int = 20):
     """
-    Enhanced feed with full algorithm transparency and explainability.
+    LEGACY: Enhanced feed with full algorithm transparency and explainability.
     Returns venues ranked by multi-factor algorithm with detailed breakdown.
     """
     from app.vector import get_user_vector, search_venues

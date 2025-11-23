@@ -1,7 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { MapPin, Users, Star, ArrowRight, Smartphone, LayoutGrid } from 'lucide-react';
+import { MapPin, Users, Star, ArrowRight, Smartphone, LayoutGrid, Info } from 'lucide-react';
 import TikTokFeed from '../components/TikTokFeed';
+
+// Tooltip Component
+function Tooltip({ children, content }) {
+    const [isVisible, setIsVisible] = useState(false);
+
+    return (
+        <div className="relative inline-block">
+            <div
+                onMouseEnter={() => setIsVisible(true)}
+                onMouseLeave={() => setIsVisible(false)}
+                className="cursor-help"
+            >
+                {children}
+            </div>
+            {isVisible && (
+                <div className="absolute z-50 w-64 p-3 text-xs bg-gray-900 text-white rounded-lg shadow-lg -top-2 left-8 transform -translate-y-full">
+                    <div className="absolute top-full left-4 -mt-1 border-4 border-transparent border-t-gray-900"></div>
+                    {content}
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function Feed() {
     const [users, setUsers] = useState([]);
@@ -22,14 +45,14 @@ export default function Feed() {
         fetchUsers();
     }, []);
 
-    // Fetch Feed
+    // Fetch Video Feed
     useEffect(() => {
         if (!selectedUserId) return;
         const fetchFeed = async () => {
             setLoading(true);
             try {
-                // Mock location for now (NYC Center)
-                const res = await axios.get(`http://localhost:8000/feed?user_id=${selectedUserId}&lat=40.7128&lon=-74.0060`);
+                // Mock location for now (NYC Center) - now fetching VIDEOS
+                const res = await axios.get(`http://localhost:8000/feed-video?user_id=${selectedUserId}&lat=40.7128&lon=-74.0060&radius_km=2.0&limit=20`);
                 setFeed(res.data.feed);
             } catch (e) {
                 console.error(e);
@@ -40,13 +63,13 @@ export default function Feed() {
         fetchFeed();
     }, [selectedUserId]);
 
-    const handleSave = async (venueId) => {
+    const handleSave = async (videoId) => {
         try {
-            await axios.post('http://localhost:8000/ingest/interaction', {
+            await axios.post('http://localhost:8000/engage-video', {
                 user_id: selectedUserId,
-                venue_id: venueId,
-                interaction_type: 'saved',
-                duration: 0
+                video_id: videoId,
+                watch_time_seconds: 5,
+                action: 'save'
             });
             alert("Saved!");
         } catch (e) {
@@ -125,15 +148,16 @@ export default function Feed() {
                         <div className="text-center py-12 text-gray-500">No recommendations yet. Add friends or interests!</div>
                     ) : (
                         feed.map((item) => (
-                            <div key={item.venue_id} className="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-shadow border border-gray-100">
+                            <div key={item.video_id} className="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-shadow border border-gray-100">
                                 <div className="flex">
                                     {/* Left: Gradient Background */}
                                     <div className="w-1/3 min-h-[200px] relative" style={{
-                                        background: item.categories?.[0] === 'cafe' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' :
+                                        background: item.gradient ||
+                                                   (item.categories?.[0] === 'cafe' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' :
                                                    item.categories?.[0] === 'bar' ? 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' :
                                                    item.categories?.[0] === 'gallery' ? 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)' :
                                                    item.categories?.[0] === 'bakery' ? 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' :
-                                                   'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+                                                   'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)')
                                     }}>
                                         <div className="absolute inset-0 flex items-center justify-center text-white">
                                             <div className="text-6xl opacity-20">
@@ -142,6 +166,8 @@ export default function Feed() {
                                                 {item.categories?.[0] === 'gallery' && '🎨'}
                                                 {item.categories?.[0] === 'bakery' && '🥐'}
                                                 {item.categories?.[0] === 'restaurant' && '🍽️'}
+                                                {item.categories?.[0] === 'music' && '🎵'}
+                                                {item.categories?.[0] === 'jazz' && '🎷'}
                                             </div>
                                         </div>
                                         <div className="absolute bottom-4 left-4">
@@ -157,13 +183,20 @@ export default function Feed() {
                                     <div className="w-2/3 p-6 flex flex-col justify-between">
                                         <div>
                                             <div className="flex justify-between items-start mb-2">
-                                                <h2 className="text-xl font-bold text-gray-900">{item.name}</h2>
+                                                {/* Video Title (primary) */}
+                                                <h2 className="text-lg font-bold text-gray-900">{item.title || item.name}</h2>
                                                 <div className="flex items-center gap-1 text-yellow-500 font-bold">
                                                     <Star className="w-4 h-4 fill-current" />
-                                                    {/* Show actual match score normalized to 5 stars roughly */}
-                                                    {Math.min(5.0, Math.max(1.0, Math.round(item.match_score * 5 * 10) / 10))}
+                                                    {Math.min(5.0, Math.max(1.0, Math.round((item.final_score || item.match_score || 0.5) * 5 * 10) / 10))}
                                                 </div>
                                             </div>
+                                            {/* Venue Name (secondary) */}
+                                            {item.title && (
+                                                <div className="flex items-center gap-1 text-gray-500 text-sm mb-2">
+                                                    <MapPin className="w-3 h-3" />
+                                                    <span>{item.name}</span>
+                                                </div>
+                                            )}
                                             <p className="text-gray-600 text-sm line-clamp-2 mb-4">{item.description}</p>
 
                                             {/* Algorithm Transparency - Score Breakdown */}
@@ -190,8 +223,20 @@ export default function Feed() {
                                                     <div className="space-y-2">
                                                         {/* Taste Match */}
                                                         <div className="text-xs">
-                                                            <div className="flex justify-between mb-1">
-                                                                <span className="text-gray-700 font-medium">Taste Match (30%)</span>
+                                                            <div className="flex justify-between mb-1 items-center">
+                                                                <div className="flex items-center gap-1">
+                                                                    <span className="text-gray-700 font-medium">Taste Match (30%)</span>
+                                                                    <Tooltip content={
+                                                                        <div>
+                                                                            <div className="font-semibold mb-1">Taste Match - 30% Weight</div>
+                                                                            <div className="opacity-90">
+                                                                                Matches your interests: preferences, categories you engage with, and similar venues you've enjoyed.
+                                                                            </div>
+                                                                        </div>
+                                                                    }>
+                                                                        <Info className="w-3 h-3 text-gray-400 hover:text-blue-600 transition" />
+                                                                    </Tooltip>
+                                                                </div>
                                                                 <span className="font-bold text-blue-600">{Math.round(item.explanation.taste_match.score * 100)}%</span>
                                                             </div>
                                                             <div className="w-full h-1.5 bg-gray-200 rounded-full">
@@ -201,8 +246,20 @@ export default function Feed() {
 
                                                         {/* Social Proof with Friend Details */}
                                                         <div className="text-xs">
-                                                            <div className="flex justify-between mb-1">
-                                                                <span className="text-gray-700 font-medium">Friend Activity (40%)</span>
+                                                            <div className="flex justify-between mb-1 items-center">
+                                                                <div className="flex items-center gap-1">
+                                                                    <span className="text-gray-700 font-medium">Friend Activity (40%)</span>
+                                                                    <Tooltip content={
+                                                                        <div>
+                                                                            <div className="font-semibold mb-1">Friend Activity - 40% Weight</div>
+                                                                            <div className="opacity-90">
+                                                                                Shared (+15), Saved (+8), Watched 10s+ (+5), Mutuals (+2). Highest weighted factor - friend recommendations are trusted.
+                                                                            </div>
+                                                                        </div>
+                                                                    }>
+                                                                        <Info className="w-3 h-3 text-gray-400 hover:text-indigo-600 transition" />
+                                                                    </Tooltip>
+                                                                </div>
                                                                 <span className="font-bold text-indigo-600">{Math.round(item.explanation.social_proof.score * 100)}%</span>
                                                             </div>
                                                             <div className="w-full h-1.5 bg-gray-200 rounded-full mb-2">
@@ -213,7 +270,11 @@ export default function Feed() {
                                                                     {item.explanation.social_proof.contributors.slice(0, 3).map((c, idx) => (
                                                                         <div key={idx} className="flex justify-between items-center bg-indigo-50 p-1.5 rounded">
                                                                             <span className="text-gray-700">
-                                                                                {c.friend ? (
+                                                                                {c.mutuals ? (
+                                                                                    `${c.mutuals} mutuals`
+                                                                                ) : c.venue_friends ? (
+                                                                                    `${c.venue_friends} friends love place`
+                                                                                ) : c.friend ? (
                                                                                     <>
                                                                                         {c.friend}{' '}
                                                                                         {c.action === 'shared' && '📤'}
@@ -221,7 +282,7 @@ export default function Feed() {
                                                                                         {c.action === 'viewed' && '👀'}
                                                                                     </>
                                                                                 ) : (
-                                                                                    `${c.mutuals} mutuals`
+                                                                                    'Friend activity'
                                                                                 )}
                                                                             </span>
                                                                             <span className="text-green-600 font-bold text-[10px]">+{c.boost}</span>
@@ -233,8 +294,20 @@ export default function Feed() {
 
                                                         {/* Proximity */}
                                                         <div className="text-xs">
-                                                            <div className="flex justify-between mb-1">
-                                                                <span className="text-gray-700 font-medium">Proximity (20%)</span>
+                                                            <div className="flex justify-between mb-1 items-center">
+                                                                <div className="flex items-center gap-1">
+                                                                    <span className="text-gray-700 font-medium">Proximity (20%)</span>
+                                                                    <Tooltip content={
+                                                                        <div>
+                                                                            <div className="font-semibold mb-1">Proximity - 20% Weight</div>
+                                                                            <div className="opacity-90">
+                                                                                Closer venues score higher. Balances convenience with discovery. Friend-recommended places get slightly larger radius.
+                                                                            </div>
+                                                                        </div>
+                                                                    }>
+                                                                        <Info className="w-3 h-3 text-gray-400 hover:text-green-600 transition" />
+                                                                    </Tooltip>
+                                                                </div>
                                                                 <span className="font-bold text-green-600">{Math.round(item.explanation.proximity.score * 100)}%</span>
                                                             </div>
                                                             <div className="w-full h-1.5 bg-gray-200 rounded-full">
@@ -244,8 +317,20 @@ export default function Feed() {
 
                                                         {/* Trending */}
                                                         <div className="text-xs">
-                                                            <div className="flex justify-between mb-1">
-                                                                <span className="text-gray-700 font-medium">Trending (10%)</span>
+                                                            <div className="flex justify-between mb-1 items-center">
+                                                                <div className="flex items-center gap-1">
+                                                                    <span className="text-gray-700 font-medium">Trending (10%)</span>
+                                                                    <Tooltip content={
+                                                                        <div>
+                                                                            <div className="font-semibold mb-1">Trending - 10% Weight</div>
+                                                                            <div className="opacity-90">
+                                                                                Freshness score: Brand new (100%), This week (70%), Recent (50%). Keeps feed fresh with new content.
+                                                                            </div>
+                                                                        </div>
+                                                                    }>
+                                                                        <Info className="w-3 h-3 text-gray-400 hover:text-orange-600 transition" />
+                                                                    </Tooltip>
+                                                                </div>
                                                                 <span className="font-bold text-orange-600">{Math.round(item.explanation.trending.score * 100)}%</span>
                                                             </div>
                                                             <div className="w-full h-1.5 bg-gray-200 rounded-full">
@@ -262,7 +347,7 @@ export default function Feed() {
                                                 Book Table <ArrowRight className="w-4 h-4" />
                                             </button>
                                             <button
-                                                onClick={() => handleSave(item.venue_id)}
+                                                onClick={() => handleSave(item.video_id)}
                                                 className="px-4 py-2.5 border border-gray-200 rounded-xl font-bold text-sm hover:bg-gray-50 text-gray-600"
                                             >
                                                 Save

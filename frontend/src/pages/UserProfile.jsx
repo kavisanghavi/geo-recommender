@@ -204,6 +204,8 @@ export default function UserProfile() {
 
 // Saved Place Card Component
 function SavedPlaceCard({ item }) {
+    const video = item.video || {};
+
     const getGradient = (categories) => {
         const gradients = {
             'cafe': 'from-purple-500 to-pink-500',
@@ -218,9 +220,9 @@ function SavedPlaceCard({ item }) {
 
     return (
         <div className="border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg transition-shadow">
-            <div className={`h-24 bg-gradient-to-br ${getGradient(item.venue?.categories)} relative`}>
+            <div className={`h-24 bg-gradient-to-br ${video.gradient || getGradient(video.categories)} relative`}>
                 <div className="absolute bottom-2 left-2">
-                    {item.venue?.categories?.slice(0, 2).map((cat, idx) => (
+                    {video.categories?.slice(0, 2).map((cat, idx) => (
                         <span key={idx} className="inline-block px-2 py-1 bg-white/20 backdrop-blur text-white text-xs rounded mr-1">
                             {cat}
                         </span>
@@ -228,15 +230,21 @@ function SavedPlaceCard({ item }) {
                 </div>
             </div>
             <div className="p-4">
+                {/* Video Title (primary) */}
                 <h4 className="font-semibold text-gray-900 mb-1 truncate">
-                    {item.venue?.name || 'Unknown Venue'}
+                    {video.title || 'Unknown Video'}
                 </h4>
+                {/* Venue Name (secondary) */}
+                <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
+                    <MapPin className="w-3 h-3" />
+                    <span className="truncate">{video.venue_name || 'Unknown Venue'}</span>
+                </div>
                 <p className="text-xs text-gray-600 mb-2 line-clamp-2">
-                    {item.venue?.description || ''}
+                    {video.description || ''}
                 </p>
                 <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>📍 {item.venue?.neighborhood}</span>
-                    <span>{'$'.repeat(item.venue?.price_tier || 1)}</span>
+                    <span>📍 {video.neighborhood}</span>
+                    <span className="px-2 py-0.5 bg-gray-100 rounded">{video.video_type}</span>
                 </div>
             </div>
         </div>
@@ -245,11 +253,14 @@ function SavedPlaceCard({ item }) {
 
 // Watch History Item Component
 function WatchHistoryItem({ item }) {
+    const video = item.video || {};
+
     const getActionIcon = (action) => {
         switch (action) {
             case 'shared': return <Share2 className="w-4 h-4 text-green-600" />;
             case 'saved': return <Bookmark className="w-4 h-4 text-blue-600" />;
             case 'viewed': return <Eye className="w-4 h-4 text-gray-600" />;
+            case 'skipped': return <Eye className="w-4 h-4 text-red-400" />;
             default: return <Eye className="w-4 h-4 text-gray-400" />;
         }
     };
@@ -259,6 +270,7 @@ function WatchHistoryItem({ item }) {
             case 'shared': return 'bg-green-50 text-green-700 border-green-200';
             case 'saved': return 'bg-blue-50 text-blue-700 border-blue-200';
             case 'viewed': return 'bg-gray-50 text-gray-700 border-gray-200';
+            case 'skipped': return 'bg-red-50 text-red-700 border-red-200';
             default: return 'bg-gray-50 text-gray-700 border-gray-200';
         }
     };
@@ -270,11 +282,17 @@ function WatchHistoryItem({ item }) {
             </div>
 
             <div className="flex-1 min-w-0">
+                {/* Video Title (primary) */}
                 <h4 className="font-semibold text-gray-900 truncate">
-                    {item.venue?.name || 'Unknown Venue'}
+                    {video.title || item.video_title || 'Unknown Video'}
                 </h4>
+                {/* Venue Name (secondary) */}
+                <div className="flex items-center gap-1 text-sm opacity-75 mb-1">
+                    <MapPin className="w-3 h-3" />
+                    <span className="truncate">{video.venue_name || item.venue_name || 'Unknown Venue'}</span>
+                </div>
                 <p className="text-sm opacity-75 truncate">
-                    {item.venue?.description || ''}
+                    {video.description || ''}
                 </p>
             </div>
 

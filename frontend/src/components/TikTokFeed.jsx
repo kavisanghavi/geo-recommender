@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { ChevronUp, ChevronDown, Share2, Bookmark, Users, MapPin, TrendingUp, Target } from 'lucide-react';
+import { ChevronUp, ChevronDown, Share2, Bookmark, Users, MapPin, TrendingUp, Target, Info } from 'lucide-react';
 
 export default function TikTokFeed({ userId }) {
     const [venues, setVenues] = useState([]);
@@ -10,17 +10,17 @@ export default function TikTokFeed({ userId }) {
     const watchTimerRef = useRef(null);
     const watchStartTimeRef = useRef(Date.now());
 
-    // Fetch feed
+    // Fetch video feed
     useEffect(() => {
         if (!userId) return;
 
         const fetchFeed = async () => {
             try {
-                // NYC Center coordinates
+                // NYC Center coordinates - now fetching VIDEOS not venues
                 const res = await axios.get(
-                    `http://localhost:8000/feed?user_id=${userId}&lat=40.7128&lon=-74.0060&radius_km=2.0&limit=20`
+                    `http://localhost:8000/feed-video?user_id=${userId}&lat=40.7128&lon=-74.0060&radius_km=2.0&limit=20`
                 );
-                setVenues(res.data.feed);
+                setVenues(res.data.feed); // Still called 'venues' in state but contains video objects
                 setLoading(false);
             } catch (e) {
                 console.error(e);
@@ -46,7 +46,7 @@ export default function TikTokFeed({ userId }) {
         watchTimerRef.current = setInterval(() => {
             const elapsed = Math.floor((Date.now() - watchStartTimeRef.current) / 1000);
             if (elapsed > 0 && venues[currentIndex]) {
-                logEngagement(venues[currentIndex].venue_id, elapsed, 'view');
+                logEngagement(venues[currentIndex].video_id, elapsed, 'view');
             }
         }, 5000);
 
@@ -57,11 +57,11 @@ export default function TikTokFeed({ userId }) {
         };
     }, [currentIndex, venues]);
 
-    const logEngagement = async (venueId, watchTime, action) => {
+    const logEngagement = async (videoId, watchTime, action) => {
         try {
-            await axios.post('http://localhost:8000/engage', {
+            await axios.post('http://localhost:8000/engage-video', {
                 user_id: userId,
-                venue_id: venueId,
+                video_id: videoId,
                 watch_time_seconds: watchTime,
                 action: action
             });
@@ -75,10 +75,10 @@ export default function TikTokFeed({ userId }) {
 
         // Log skip if less than 3 seconds
         if (watchTime < 3 && venues[currentIndex]) {
-            logEngagement(venues[currentIndex].venue_id, watchTime, 'skip');
+            logEngagement(venues[currentIndex].video_id, watchTime, 'skip');
         } else if (watchTime >= 3 && venues[currentIndex]) {
-            // Log the final view time for this venue
-            logEngagement(venues[currentIndex].venue_id, watchTime, 'view');
+            // Log the final view time for this video
+            logEngagement(venues[currentIndex].video_id, watchTime, 'view');
         }
 
         // Move to next venue
@@ -98,18 +98,18 @@ export default function TikTokFeed({ userId }) {
 
     const handleSave = async () => {
         const watchTime = Math.floor((Date.now() - watchStartTimeRef.current) / 1000);
-        const venue = venues[currentIndex];
+        const video = venues[currentIndex];
 
-        await logEngagement(venue.venue_id, watchTime, 'save');
+        await logEngagement(video.video_id, watchTime, 'save');
         alert('Saved! ✓');
     };
 
     const handleShare = async () => {
         const watchTime = Math.floor((Date.now() - watchStartTimeRef.current) / 1000);
-        const venue = venues[currentIndex];
+        const video = venues[currentIndex];
 
         // For demo, just log the share
-        await logEngagement(venue.venue_id, watchTime, 'share');
+        await logEngagement(video.video_id, watchTime, 'share');
         alert('Shared with friends! 🎉');
     };
 
@@ -176,11 +176,17 @@ export default function TikTokFeed({ userId }) {
                     </div>
 
                     <div className="absolute bottom-6 left-6 right-6 text-white">
-                        <h1 className="text-4xl font-bold mb-3">{currentVenue.name}</h1>
-                        <p className="text-base opacity-90 mb-4">{currentVenue.description}</p>
+                        {/* Video Title (larger, more prominent) */}
+                        <h1 className="text-3xl font-bold mb-2">{currentVenue.title}</h1>
+                        {/* Venue Name (smaller, secondary) */}
+                        <div className="flex items-center gap-2 mb-3">
+                            <MapPin className="w-4 h-4 opacity-75" />
+                            <p className="text-lg opacity-90 font-medium">{currentVenue.name}</p>
+                        </div>
+                        <p className="text-sm opacity-80 mb-4">{currentVenue.description}</p>
                         <div className="flex gap-2">
                             {currentVenue.categories.slice(0, 3).map((cat, idx) => (
-                                <span key={idx} className="px-3 py-1 bg-white/20 backdrop-blur rounded-lg text-sm">
+                                <span key={idx} className="px-3 py-1 bg-white/20 backdrop-blur rounded-lg text-xs">
                                     {cat}
                                 </span>
                             ))}
@@ -235,6 +241,29 @@ export default function TikTokFeed({ userId }) {
     );
 }
 
+// Tooltip Component
+function Tooltip({ children, content }) {
+    const [isVisible, setIsVisible] = useState(false);
+
+    return (
+        <div className="relative inline-block">
+            <div
+                onMouseEnter={() => setIsVisible(true)}
+                onMouseLeave={() => setIsVisible(false)}
+                className="cursor-help"
+            >
+                {children}
+            </div>
+            {isVisible && (
+                <div className="absolute z-50 w-64 p-3 text-xs bg-gray-900 text-white rounded-lg shadow-lg -top-2 left-8 transform -translate-y-full">
+                    <div className="absolute top-full left-4 -mt-1 border-4 border-transparent border-t-gray-900"></div>
+                    {content}
+                </div>
+            )}
+        </div>
+    );
+}
+
 // Algorithm Breakdown Component
 function AlgorithmBreakdown({ explanation, finalScore }) {
     if (!explanation) return null;
@@ -261,6 +290,22 @@ function AlgorithmBreakdown({ explanation, finalScore }) {
                         <div className="flex items-center gap-2">
                             <Target className="w-5 h-5 text-blue-600" />
                             <span className="font-bold text-gray-900">Taste Match</span>
+                            <Tooltip content={
+                                <div>
+                                    <div className="font-semibold mb-1">Taste Match - 30% Weight</div>
+                                    <div className="text-xs opacity-90">
+                                        Measures how well this video matches your interests based on:
+                                        <ul className="list-disc ml-4 mt-1">
+                                            <li>Your saved interests and preferences</li>
+                                            <li>Categories you engage with most</li>
+                                            <li>Similar venues you've enjoyed</li>
+                                        </ul>
+                                        Higher score = closer match to your taste profile
+                                    </div>
+                                </div>
+                            }>
+                                <Info className="w-4 h-4 text-gray-400 hover:text-blue-600 transition" />
+                            </Tooltip>
                         </div>
                         <span className="text-2xl font-bold text-blue-600">{Math.round(explanation.taste_match.score * 100)}%</span>
                     </div>
@@ -277,6 +322,23 @@ function AlgorithmBreakdown({ explanation, finalScore }) {
                         <div className="flex items-center gap-2">
                             <Users className="w-5 h-5 text-indigo-600" />
                             <span className="font-bold text-gray-900">Friend Activity</span>
+                            <Tooltip content={
+                                <div>
+                                    <div className="font-semibold mb-1">Friend Activity - 40% Weight</div>
+                                    <div className="text-xs opacity-90">
+                                        Shows how your friends have engaged with this content:
+                                        <ul className="list-disc ml-4 mt-1">
+                                            <li><strong>Shared:</strong> +15 points - highest signal</li>
+                                            <li><strong>Saved:</strong> +8 points - strong interest</li>
+                                            <li><strong>Watched ≥10s:</strong> +5 points - genuine engagement</li>
+                                            <li><strong>Mutual friends:</strong> +2 points each</li>
+                                        </ul>
+                                        This is the <strong>highest weighted factor</strong> because friend recommendations are highly trusted.
+                                    </div>
+                                </div>
+                            }>
+                                <Info className="w-4 h-4 text-gray-400 hover:text-indigo-600 transition" />
+                            </Tooltip>
                         </div>
                         <span className="text-2xl font-bold text-indigo-600">{Math.round(explanation.social_proof.score * 100)}%</span>
                     </div>
@@ -292,7 +354,11 @@ function AlgorithmBreakdown({ explanation, finalScore }) {
                             {explanation.social_proof.contributors.map((c, idx) => (
                                 <div key={idx} className="flex justify-between items-center text-sm bg-indigo-50 p-2 rounded">
                                     <span className="text-gray-700">
-                                        {c.friend ? (
+                                        {c.mutuals ? (
+                                            `${c.mutuals} mutual friends interested`
+                                        ) : c.venue_friends ? (
+                                            `${c.venue_friends} friends love this place`
+                                        ) : c.friend ? (
                                             <>
                                                 {c.friend}{' '}
                                                 {c.action === 'shared' && '📤 shared'}
@@ -300,7 +366,7 @@ function AlgorithmBreakdown({ explanation, finalScore }) {
                                                 {c.action === 'viewed' && '👀 watched ≥10s'}
                                             </>
                                         ) : (
-                                            `${c.mutuals} mutual friends interested`
+                                            'Friend activity'
                                         )}
                                     </span>
                                     <span className="text-green-600 font-bold">+{c.boost} pts</span>
@@ -317,6 +383,22 @@ function AlgorithmBreakdown({ explanation, finalScore }) {
                         <div className="flex items-center gap-2">
                             <MapPin className="w-5 h-5 text-green-600" />
                             <span className="font-bold text-gray-900">Proximity</span>
+                            <Tooltip content={
+                                <div>
+                                    <div className="font-semibold mb-1">Proximity - 20% Weight</div>
+                                    <div className="text-xs opacity-90">
+                                        Considers how close this venue is to your current location:
+                                        <ul className="list-disc ml-4 mt-1">
+                                            <li>Closer venues score higher</li>
+                                            <li>Walking distance matters for spontaneous visits</li>
+                                            <li>Friend-recommended places get slightly larger radius</li>
+                                        </ul>
+                                        Balance between convenience and discovery.
+                                    </div>
+                                </div>
+                            }>
+                                <Info className="w-4 h-4 text-gray-400 hover:text-green-600 transition" />
+                            </Tooltip>
                         </div>
                         <span className="text-2xl font-bold text-green-600">{Math.round(explanation.proximity.score * 100)}%</span>
                     </div>
@@ -333,6 +415,23 @@ function AlgorithmBreakdown({ explanation, finalScore }) {
                         <div className="flex items-center gap-2">
                             <TrendingUp className="w-5 h-5 text-orange-600" />
                             <span className="font-bold text-gray-900">Trending</span>
+                            <Tooltip content={
+                                <div>
+                                    <div className="font-semibold mb-1">Trending - 10% Weight</div>
+                                    <div className="text-xs opacity-90">
+                                        Measures how fresh and timely this content is:
+                                        <ul className="list-disc ml-4 mt-1">
+                                            <li><strong>Brand new</strong> (0-2 days): 100% score</li>
+                                            <li><strong>This week</strong> (3-7 days): 70% score</li>
+                                            <li><strong>Recent</strong> (8-14 days): 50% score</li>
+                                            <li><strong>Older</strong> content scores lower</li>
+                                        </ul>
+                                        Keeps your feed fresh with new videos.
+                                    </div>
+                                </div>
+                            }>
+                                <Info className="w-4 h-4 text-gray-400 hover:text-orange-600 transition" />
+                            </Tooltip>
                         </div>
                         <span className="text-2xl font-bold text-orange-600">{Math.round(explanation.trending.score * 100)}%</span>
                     </div>
