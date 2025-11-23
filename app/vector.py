@@ -12,12 +12,28 @@ def get_vector_client():
 
 def get_user_vector(user_id: str) -> list[float]:
     """
-    Retrieve the user's interest vector.
-    For MVP, we return a random vector if not found (or mock it).
-    In production, this would query Qdrant 'users' collection.
+    Retrieve the user's interest vector from Qdrant users collection.
+    Falls back to random vector if not found (for backwards compatibility).
     """
-    # Mock: Return a random 1536-dim vector
-    return [random.random() for _ in range(1536)]
+    try:
+        # Extract user index from user_id (e.g., "user_42" -> 42)
+        user_index = int(user_id.split("_")[1])
+
+        # Retrieve from Qdrant users collection
+        points = client.retrieve(
+            collection_name="users",
+            ids=[user_index],
+            with_vectors=True
+        )
+
+        if points and len(points) > 0:
+            return points[0].vector
+        else:
+            print(f"Warning: User {user_id} not found in Qdrant, using random vector")
+            return [random.random() for _ in range(1536)]
+    except Exception as e:
+        print(f"Error retrieving user vector: {e}, using random vector")
+        return [random.random() for _ in range(1536)]
 
 def search_venues(user_vector: list[float], lat: float, lon: float, radius_km: float = 5.0, limit: int = 50) -> list[dict]:
     """

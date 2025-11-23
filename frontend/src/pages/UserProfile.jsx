@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { User, MapPin, Users, Heart, Calendar } from 'lucide-react';
+import { User, MapPin, Users, Heart, Calendar, Clock, Bookmark, Share2, Eye } from 'lucide-react';
 
 export default function UserProfile() {
     const [users, setUsers] = useState([]);
@@ -104,47 +104,202 @@ export default function UserProfile() {
                             </div>
                         </div>
 
-                        {/* Two Columns: Friends & Places */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* Friends */}
-                            <div className="bg-white p-6 rounded-2xl shadow-sm">
-                                <h3 className="font-bold text-lg mb-4">Friends</h3>
-                                <div className="space-y-3">
-                                    {(profile.friends || []).map(f => (
-                                        <div key={f.id} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg">
-                                            <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center text-xs font-bold">
-                                                {f.name[0]}
-                                            </div>
-                                            <span className="font-medium">{f.name}</span>
-                                        </div>
-                                    ))}
-                                    {(profile.friends || []).length === 0 && <div className="text-gray-400 italic">No friends yet</div>}
-                                </div>
-                            </div>
-
-                            {/* Places */}
-                            <div className="bg-white p-6 rounded-2xl shadow-sm">
-                                <h3 className="font-bold text-lg mb-4">My Places</h3>
-                                <div className="space-y-3">
-                                    {(profile.interactions || []).map((interaction, i) => (
-                                        <div key={i} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg border border-gray-100">
+                        {/* Friends */}
+                        <div className="bg-white p-6 rounded-2xl shadow-sm">
+                            <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+                                <Users className="w-5 h-5" />
+                                Friends ({(profile.friends || []).length})
+                            </h3>
+                            <div className="grid grid-cols-2 gap-3">
+                                {(profile.friends || []).map(f => (
+                                    <div key={f.id} className="border border-gray-200 rounded-xl p-4 hover:border-indigo-300 transition">
+                                        <div className="flex items-start justify-between">
                                             <div>
-                                                <div className="font-medium">{interaction.venue?.name || interaction.venue_id}</div>
-                                                <div className="text-xs text-gray-500">{interaction.venue?.category}</div>
+                                                <h4 className="font-semibold text-gray-900">{f.name}</h4>
+                                                <div className="flex flex-wrap gap-1 mt-2">
+                                                    {f.interests?.slice(0, 3).map((interest, idx) => (
+                                                        <span key={idx} className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">
+                                                            {interest}
+                                                        </span>
+                                                    ))}
+                                                </div>
                                             </div>
-                                            <span className={interaction.type === 'going' ? 'text-green-600 text-xs font-bold' : 'text-blue-600 text-xs font-bold'}>
-                                                {interaction.type.toUpperCase()}
-                                            </span>
                                         </div>
-                                    ))}
-                                    {(profile.interactions || []).length === 0 && <div className="text-gray-400 italic">No places yet</div>}
-                                </div>
+                                    </div>
+                                ))}
+                                {(profile.friends || []).length === 0 && <div className="col-span-2 text-center py-8 text-gray-400 italic">No friends yet</div>}
                             </div>
+                        </div>
+
+                        {/* My Places (Saved Venues) */}
+                        <div className="bg-white p-6 rounded-2xl shadow-sm">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="font-bold text-lg flex items-center gap-2">
+                                    <Bookmark className="w-5 h-5 text-blue-600" />
+                                    My Places ({(profile.watch_history || []).filter(h => h.action === 'saved').length})
+                                </h3>
+                                <button
+                                    onClick={() => window.location.reload()}
+                                    className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
+                                >
+                                    🔄 Refresh
+                                </button>
+                            </div>
+                            {!profile.watch_history || profile.watch_history.filter(h => h.action === 'saved').length === 0 ? (
+                                <div className="text-center py-8 text-gray-400 italic">No saved places yet. Start saving venues!</div>
+                            ) : (
+                                <div className="grid grid-cols-2 gap-4">
+                                    {profile.watch_history
+                                        .filter(h => h.action === 'saved')
+                                        .map((item, idx) => (
+                                            <SavedPlaceCard key={idx} item={item} />
+                                        ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Recent Activity */}
+                        <div className="bg-white p-6 rounded-2xl shadow-sm">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="font-bold text-lg flex items-center gap-2">
+                                    <Clock className="w-5 h-5" />
+                                    Recent Activity ({(profile.watch_history || []).length})
+                                </h3>
+                                <button
+                                    onClick={async () => {
+                                        if (confirm('Clear all activity for this user? This will help you test the feed changes.')) {
+                                            try {
+                                                await axios.post('http://localhost:8000/debug/clear-activity', {
+                                                    user_id: selectedUserId
+                                                });
+                                                alert('Activity cleared! Refresh to see changes.');
+                                                window.location.reload();
+                                            } catch (e) {
+                                                alert('Failed to clear activity');
+                                            }
+                                        }
+                                    }}
+                                    className="text-sm text-red-600 hover:text-red-700 font-medium"
+                                >
+                                    🗑️ Clear Activity
+                                </button>
+                            </div>
+                            {!profile.watch_history || profile.watch_history.length === 0 ? (
+                                <div className="text-center py-8 text-gray-400 italic">No activity yet</div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {profile.watch_history.slice(0, 10).map((item, idx) => (
+                                        <WatchHistoryItem key={idx} item={item} />
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+// Saved Place Card Component
+function SavedPlaceCard({ item }) {
+    const video = item.video || {};
+
+    const getGradient = (categories) => {
+        const gradients = {
+            'cafe': 'from-purple-500 to-pink-500',
+            'restaurant': 'from-orange-500 to-red-500',
+            'bar': 'from-blue-500 to-cyan-500',
+            'gallery': 'from-green-500 to-teal-500',
+            'bakery': 'from-pink-500 to-yellow-500',
+        };
+        const category = categories?.[0] || 'restaurant';
+        return gradients[category] || gradients['restaurant'];
+    };
+
+    return (
+        <div className="border border-gray-200 rounded-xl overflow-hidden hover:shadow-lg transition-shadow">
+            <div className={`h-24 bg-gradient-to-br ${video.gradient || getGradient(video.categories)} relative`}>
+                <div className="absolute bottom-2 left-2">
+                    {video.categories?.slice(0, 2).map((cat, idx) => (
+                        <span key={idx} className="inline-block px-2 py-1 bg-white/20 backdrop-blur text-white text-xs rounded mr-1">
+                            {cat}
+                        </span>
+                    ))}
+                </div>
+            </div>
+            <div className="p-4">
+                {/* Video Title (primary) */}
+                <h4 className="font-semibold text-gray-900 mb-1 truncate">
+                    {video.title || 'Unknown Video'}
+                </h4>
+                {/* Venue Name (secondary) */}
+                <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
+                    <MapPin className="w-3 h-3" />
+                    <span className="truncate">{video.venue_name || 'Unknown Venue'}</span>
+                </div>
+                <p className="text-xs text-gray-600 mb-2 line-clamp-2">
+                    {video.description || ''}
+                </p>
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span>📍 {video.neighborhood}</span>
+                    <span className="px-2 py-0.5 bg-gray-100 rounded">{video.video_type}</span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// Watch History Item Component
+function WatchHistoryItem({ item }) {
+    const video = item.video || {};
+
+    const getActionIcon = (action) => {
+        switch (action) {
+            case 'shared': return <Share2 className="w-4 h-4 text-green-600" />;
+            case 'saved': return <Bookmark className="w-4 h-4 text-blue-600" />;
+            case 'viewed': return <Eye className="w-4 h-4 text-gray-600" />;
+            case 'skipped': return <Eye className="w-4 h-4 text-red-400" />;
+            default: return <Eye className="w-4 h-4 text-gray-400" />;
+        }
+    };
+
+    const getActionColor = (action) => {
+        switch (action) {
+            case 'shared': return 'bg-green-50 text-green-700 border-green-200';
+            case 'saved': return 'bg-blue-50 text-blue-700 border-blue-200';
+            case 'viewed': return 'bg-gray-50 text-gray-700 border-gray-200';
+            case 'skipped': return 'bg-red-50 text-red-700 border-red-200';
+            default: return 'bg-gray-50 text-gray-700 border-gray-200';
+        }
+    };
+
+    return (
+        <div className={`border rounded-lg p-4 flex items-center gap-4 ${getActionColor(item.action)}`}>
+            <div className="flex-shrink-0">
+                {getActionIcon(item.action)}
+            </div>
+
+            <div className="flex-1 min-w-0">
+                {/* Video Title (primary) */}
+                <h4 className="font-semibold text-gray-900 truncate">
+                    {video.title || item.video_title || 'Unknown Video'}
+                </h4>
+                {/* Venue Name (secondary) */}
+                <div className="flex items-center gap-1 text-sm opacity-75 mb-1">
+                    <MapPin className="w-3 h-3" />
+                    <span className="truncate">{video.venue_name || item.venue_name || 'Unknown Venue'}</span>
+                </div>
+                <p className="text-sm opacity-75 truncate">
+                    {video.description || ''}
+                </p>
+            </div>
+
+            <div className="text-right flex-shrink-0">
+                <div className="text-sm font-medium capitalize">{item.action}</div>
+                <div className="text-xs opacity-75">{item.watch_time}s watched</div>
+            </div>
         </div>
     );
 }
